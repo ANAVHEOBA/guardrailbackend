@@ -2,9 +2,20 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    module::asset::model::{AssetRecord, AssetTypeRecord},
+    module::asset::model::{AssetCatalogRecord, AssetRecord, AssetTypeRecord},
     service::chain::bytes32_text_from_hex,
 };
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct ListAssetsQuery {
+    pub asset_type_id: Option<String>,
+    pub q: Option<String>,
+    pub asset_state: Option<String>,
+    pub self_service_purchase_enabled: Option<bool>,
+    pub featured: Option<bool>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AdminRegisterAssetTypeRequest {
@@ -24,6 +35,15 @@ pub struct AdminCreateAssetRequest {
     pub redemption_price: String,
     pub self_service_purchase_enabled: bool,
     pub metadata_hash: Option<String>,
+    pub slug: Option<String>,
+    pub image_url: Option<String>,
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub featured: bool,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default = "default_true")]
+    pub searchable: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -63,6 +83,19 @@ pub struct AdminSetAssetSelfServicePurchaseRequest {
 #[derive(Debug, Deserialize, Clone)]
 pub struct AdminSetAssetMetadataRequest {
     pub metadata_hash: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AdminSetAssetCatalogRequest {
+    pub slug: String,
+    pub image_url: Option<String>,
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub featured: bool,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default = "default_true")]
+    pub searchable: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -155,6 +188,8 @@ pub struct AssetTypeResponse {
 #[derive(Debug, Serialize)]
 pub struct AssetListResponse {
     pub assets: Vec<AssetResponse>,
+    pub limit: i64,
+    pub offset: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -168,8 +203,15 @@ pub struct AssetResponse {
     pub proposal_id: String,
     pub asset_type_id: String,
     pub asset_type_id_text: Option<String>,
+    pub asset_type_name: Option<String>,
+    pub slug: Option<String>,
     pub name: String,
     pub symbol: String,
+    pub image_url: Option<String>,
+    pub summary: Option<String>,
+    pub featured: bool,
+    pub visible: bool,
+    pub searchable: bool,
     pub max_supply: String,
     pub total_supply: String,
     pub asset_state: i32,
@@ -235,6 +277,11 @@ pub struct AssetWriteResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct AssetCatalogWriteResponse {
+    pub asset: AssetResponse,
+}
+
+#[derive(Debug, Serialize)]
 pub struct GaslessAssetActionResponse {
     pub tx_hash: String,
     pub asset: AssetResponse,
@@ -262,8 +309,15 @@ impl From<AssetRecord> for AssetResponse {
             proposal_id: record.proposal_id,
             asset_type_id_text: bytes32_text_from_hex(&record.asset_type_id),
             asset_type_id: record.asset_type_id,
+            asset_type_name: record.asset_type_name,
+            slug: record.slug.or_else(|| Some(default_asset_slug(&record.name))),
             name: record.name,
             symbol: record.symbol,
+            image_url: record.image_url,
+            summary: record.summary,
+            featured: record.featured,
+            visible: record.visible,
+            searchable: record.searchable,
             max_supply: record.max_supply,
             total_supply: record.total_supply,
             asset_state: record.asset_state,
@@ -281,5 +335,65 @@ impl From<AssetRecord> for AssetResponse {
             last_tx_hash: record.last_tx_hash,
             updated_at: record.updated_at,
         }
+    }
+}
+
+impl AssetCatalogWriteResponse {
+    pub fn from_record(record: AssetRecord) -> Self {
+        Self {
+            asset: AssetResponse::from(record),
+        }
+    }
+}
+
+impl AssetListResponse {
+    pub fn new(assets: Vec<AssetResponse>, limit: i64, offset: i64) -> Self {
+        Self {
+            assets,
+            limit,
+            offset,
+        }
+    }
+}
+
+impl From<AssetCatalogRecord> for AdminSetAssetCatalogRequest {
+    fn from(record: AssetCatalogRecord) -> Self {
+        Self {
+            slug: record.slug,
+            image_url: record.image_url,
+            summary: record.summary,
+            featured: record.featured,
+            visible: record.visible,
+            searchable: record.searchable,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_asset_slug(name: &str) -> String {
+    let mut slug = String::with_capacity(name.len());
+    let mut previous_was_hyphen = false;
+
+    for character in name.trim().chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character.to_ascii_lowercase());
+            previous_was_hyphen = false;
+            continue;
+        }
+
+        if !previous_was_hyphen {
+            slug.push('-');
+            previous_was_hyphen = true;
+        }
+    }
+
+    let normalized = slug.trim_matches('-').to_owned();
+    if normalized.is_empty() {
+        "asset".to_owned()
+    } else {
+        normalized
     }
 }

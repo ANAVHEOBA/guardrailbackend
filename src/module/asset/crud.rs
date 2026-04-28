@@ -3,10 +3,12 @@ use uuid::Uuid;
 use crate::{
     config::db::DbPool,
     module::{
-        asset::model::{AssetRecord, AssetTypeRecord},
+        asset::model::{AssetCatalogRecord, AssetRecord, AssetTypeRecord},
         auth::error::AuthError,
     },
 };
+
+use sqlx::{Postgres, QueryBuilder};
 
 mod sql {
     pub const GET_ASSET_TYPE: &str = include_str!("sql/get_asset_type.sql");
@@ -14,9 +16,22 @@ mod sql {
     pub const UPSERT_ASSET_TYPE: &str = include_str!("sql/upsert_asset_type.sql");
     pub const GET_ASSET: &str = include_str!("sql/get_asset.sql");
     pub const GET_ASSET_BY_PROPOSAL: &str = include_str!("sql/get_asset_by_proposal.sql");
-    pub const LIST_ASSETS: &str = include_str!("sql/list_assets.sql");
-    pub const LIST_ASSETS_BY_TYPE: &str = include_str!("sql/list_assets_by_type.sql");
+    pub const GET_ASSET_BY_SLUG: &str = include_str!("sql/get_asset_by_slug.sql");
     pub const UPSERT_ASSET: &str = include_str!("sql/upsert_asset.sql");
+    pub const UPSERT_ASSET_CATALOG_ENTRY: &str = include_str!("sql/upsert_asset_catalog_entry.sql");
+}
+
+pub struct AssetListFilters<'a> {
+    pub chain_id: i64,
+    pub asset_type_id: Option<&'a str>,
+    pub q: Option<&'a str>,
+    pub asset_state: Option<i32>,
+    pub self_service_purchase_enabled: Option<bool>,
+    pub featured: Option<bool>,
+    pub limit: i64,
+    pub offset: i64,
+    pub only_visible: bool,
+    pub require_searchable: bool,
 }
 
 pub async fn get_asset_type(
@@ -60,10 +75,25 @@ pub async fn upsert_asset_type(
 
 pub async fn get_asset(
     pool: &DbPool,
+    chain_id: i64,
     asset_address: &str,
 ) -> Result<Option<AssetRecord>, AuthError> {
     sqlx::query_as::<_, AssetRecord>(sql::GET_ASSET)
+        .bind(chain_id)
         .bind(asset_address)
+        .fetch_optional(pool)
+        .await
+        .map_err(AuthError::from)
+}
+
+pub async fn get_asset_by_slug(
+    pool: &DbPool,
+    chain_id: i64,
+    slug: &str,
+) -> Result<Option<AssetRecord>, AuthError> {
+    sqlx::query_as::<_, AssetRecord>(sql::GET_ASSET_BY_SLUG)
+        .bind(chain_id)
+        .bind(slug)
         .fetch_optional(pool)
         .await
         .map_err(AuthError::from)
@@ -71,17 +101,110 @@ pub async fn get_asset(
 
 pub async fn get_asset_by_proposal(
     pool: &DbPool,
+    chain_id: i64,
     proposal_id: &str,
 ) -> Result<Option<AssetRecord>, AuthError> {
     sqlx::query_as::<_, AssetRecord>(sql::GET_ASSET_BY_PROPOSAL)
+        .bind(chain_id)
         .bind(proposal_id)
         .fetch_optional(pool)
         .await
         .map_err(AuthError::from)
 }
 
-pub async fn list_assets(pool: &DbPool) -> Result<Vec<AssetRecord>, AuthError> {
-    sqlx::query_as::<_, AssetRecord>(sql::LIST_ASSETS)
+pub async fn list_assets(
+    pool: &DbPool,
+    filters: AssetListFilters<'_>,
+) -> Result<Vec<AssetRecord>, AuthError> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            a.asset_address,
+            a.proposal_id,
+            a.asset_type_id,
+            t.asset_type_name,
+            a.name,
+            a.symbol,
+            a.max_supply,
+            a.total_supply,
+            a.asset_state,
+            a.asset_state_label,
+            a.controllable,
+            a.self_service_purchase_enabled,
+            a.price_per_token,
+            a.redemption_price_per_token,
+            a.treasury_address,
+            a.compliance_registry_address,
+            a.payment_token_address,
+            a.metadata_hash,
+            c.slug,
+            c.image_url,
+            c.summary,
+            COALESCE(c.featured, FALSE) AS featured,
+            COALESCE(c.visible, TRUE) AS visible,
+            COALESCE(c.searchable, TRUE) AS searchable,
+            a.holder_count,
+            a.total_pending_redemptions,
+            a.created_by_user_id,
+            a.updated_by_user_id,
+            a.last_tx_hash,
+            a.created_at,
+            a.updated_at
+        FROM assets a
+        LEFT JOIN asset_types t ON t.asset_type_id = a.asset_type_id
+        LEFT JOIN asset_catalog_entries c ON c.asset_address = a.asset_address
+        WHERE 1 = 1
+        "#,
+    );
+
+    query.push(" AND a.chain_id = ");
+    query.push_bind(filters.chain_id);
+
+    if filters.only_visible {
+        query.push(" AND COALESCE(c.visible, TRUE) = TRUE");
+    }
+    if filters.require_searchable {
+        query.push(" AND COALESCE(c.searchable, TRUE) = TRUE");
+    }
+    if let Some(asset_type_id) = filters.asset_type_id {
+        query.push(" AND a.asset_type_id = ");
+        query.push_bind(asset_type_id);
+    }
+    if let Some(asset_state) = filters.asset_state {
+        query.push(" AND a.asset_state = ");
+        query.push_bind(asset_state);
+    }
+    if let Some(enabled) = filters.self_service_purchase_enabled {
+        query.push(" AND a.self_service_purchase_enabled = ");
+        query.push_bind(enabled);
+    }
+    if let Some(featured) = filters.featured {
+        query.push(" AND COALESCE(c.featured, FALSE) = ");
+        query.push_bind(featured);
+    }
+    if let Some(q) = filters.q {
+        let pattern = format!("%{}%", q.trim());
+        query.push(
+            " AND (a.name ILIKE ",
+        );
+        query.push_bind(pattern.clone());
+        query.push(" OR a.symbol ILIKE ");
+        query.push_bind(pattern.clone());
+        query.push(" OR COALESCE(c.slug, '') ILIKE ");
+        query.push_bind(pattern.clone());
+        query.push(" OR COALESCE(c.summary, '') ILIKE ");
+        query.push_bind(pattern);
+        query.push(")");
+    }
+
+    query.push(" ORDER BY COALESCE(c.featured, FALSE) DESC, a.updated_at DESC");
+    query.push(" LIMIT ");
+    query.push_bind(filters.limit);
+    query.push(" OFFSET ");
+    query.push_bind(filters.offset);
+
+    query
+        .build_query_as::<AssetRecord>()
         .fetch_all(pool)
         .await
         .map_err(AuthError::from)
@@ -89,19 +212,32 @@ pub async fn list_assets(pool: &DbPool) -> Result<Vec<AssetRecord>, AuthError> {
 
 pub async fn list_assets_by_type(
     pool: &DbPool,
+    chain_id: i64,
     asset_type_id: &str,
 ) -> Result<Vec<AssetRecord>, AuthError> {
-    sqlx::query_as::<_, AssetRecord>(sql::LIST_ASSETS_BY_TYPE)
-        .bind(asset_type_id)
-        .fetch_all(pool)
-        .await
-        .map_err(AuthError::from)
+    list_assets(
+        pool,
+        AssetListFilters {
+            chain_id,
+            asset_type_id: Some(asset_type_id),
+            q: None,
+            asset_state: None,
+            self_service_purchase_enabled: None,
+            featured: None,
+            limit: 100,
+            offset: 0,
+            only_visible: true,
+            require_searchable: false,
+        },
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn upsert_asset(
     pool: &DbPool,
     asset_address: &str,
+    chain_id: i64,
     proposal_id: &str,
     asset_type_id: &str,
     name: &str,
@@ -126,6 +262,7 @@ pub async fn upsert_asset(
 ) -> Result<AssetRecord, AuthError> {
     sqlx::query_as::<_, AssetRecord>(sql::UPSERT_ASSET)
         .bind(asset_address)
+        .bind(chain_id)
         .bind(proposal_id)
         .bind(asset_type_id)
         .bind(name)
@@ -147,6 +284,34 @@ pub async fn upsert_asset(
         .bind(created_by_user_id)
         .bind(updated_by_user_id)
         .bind(last_tx_hash)
+        .fetch_one(pool)
+        .await
+        .map_err(AuthError::from)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_asset_catalog_entry(
+    pool: &DbPool,
+    asset_address: &str,
+    slug: &str,
+    image_url: Option<&str>,
+    summary: Option<&str>,
+    featured: bool,
+    visible: bool,
+    searchable: bool,
+    created_by_user_id: Option<Uuid>,
+    updated_by_user_id: Option<Uuid>,
+) -> Result<AssetCatalogRecord, AuthError> {
+    sqlx::query_as::<_, AssetCatalogRecord>(sql::UPSERT_ASSET_CATALOG_ENTRY)
+        .bind(asset_address)
+        .bind(slug)
+        .bind(image_url)
+        .bind(summary)
+        .bind(featured)
+        .bind(visible)
+        .bind(searchable)
+        .bind(created_by_user_id)
+        .bind(updated_by_user_id)
         .fetch_one(pool)
         .await
         .map_err(AuthError::from)

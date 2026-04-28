@@ -26,6 +26,9 @@ use crate::{
     module::compliance::route::{
         admin_router as admin_compliance_router, public_router as public_compliance_router,
     },
+    module::faucet::route::{
+        me_router as me_faucet_router, public_router as public_faucet_router,
+    },
     module::oracle::route::{
         admin_router as admin_oracle_router, public_router as public_oracle_router,
     },
@@ -58,6 +61,8 @@ pub fn build_router(state: AppState) -> Result<Router> {
         .merge(public_compliance_router())
         .merge(public_asset_router())
         .merge(user_asset_router(state.clone()))
+        .merge(public_faucet_router())
+        .merge(me_faucet_router(state.clone()))
         .merge(public_treasury_router())
         .merge(public_oracle_router())
         .with_state(state)

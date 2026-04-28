@@ -34,4 +34,5 @@ FROM assets a
 LEFT JOIN asset_types t ON t.asset_type_id = a.asset_type_id
 LEFT JOIN asset_catalog_entries c ON c.asset_address = a.asset_address
 WHERE a.chain_id = $1
-  AND a.asset_address = $2
+  AND c.slug = $2
+  AND COALESCE(c.visible, TRUE) = TRUE

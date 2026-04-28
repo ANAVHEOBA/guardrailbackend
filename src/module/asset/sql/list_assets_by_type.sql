@@ -1,28 +1,39 @@
 SELECT
-    asset_address,
-    proposal_id,
-    asset_type_id,
-    name,
-    symbol,
-    max_supply,
-    total_supply,
-    asset_state,
-    asset_state_label,
-    controllable,
-    self_service_purchase_enabled,
-    price_per_token,
-    redemption_price_per_token,
-    treasury_address,
-    compliance_registry_address,
-    payment_token_address,
-    metadata_hash,
-    holder_count,
-    total_pending_redemptions,
-    created_by_user_id,
-    updated_by_user_id,
-    last_tx_hash,
-    created_at,
-    updated_at
-FROM assets
-WHERE asset_type_id = $1
-ORDER BY created_at ASC
+    a.asset_address,
+    a.proposal_id,
+    a.asset_type_id,
+    t.asset_type_name,
+    a.name,
+    a.symbol,
+    a.max_supply,
+    a.total_supply,
+    a.asset_state,
+    a.asset_state_label,
+    a.controllable,
+    a.self_service_purchase_enabled,
+    a.price_per_token,
+    a.redemption_price_per_token,
+    a.treasury_address,
+    a.compliance_registry_address,
+    a.payment_token_address,
+    a.metadata_hash,
+    c.slug,
+    c.image_url,
+    c.summary,
+    COALESCE(c.featured, FALSE) AS featured,
+    COALESCE(c.visible, TRUE) AS visible,
+    COALESCE(c.searchable, TRUE) AS searchable,
+    a.holder_count,
+    a.total_pending_redemptions,
+    a.created_by_user_id,
+    a.updated_by_user_id,
+    a.last_tx_hash,
+    a.created_at,
+    a.updated_at
+FROM assets a
+LEFT JOIN asset_types t ON t.asset_type_id = a.asset_type_id
+LEFT JOIN asset_catalog_entries c ON c.asset_address = a.asset_address
+WHERE a.chain_id = $1
+  AND a.asset_type_id = $2
+  AND COALESCE(c.visible, TRUE) = TRUE
+ORDER BY COALESCE(c.featured, FALSE) DESC, a.updated_at DESC

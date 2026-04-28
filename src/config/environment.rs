@@ -39,6 +39,16 @@ pub struct Environment {
     pub aa_user_operation_timeout_ms: u64,
     pub aa_owner_encryption_key: String,
     pub aa_owner_encryption_key_version: i32,
+    pub faucet_usdc_amount: String,
+    pub faucet_usdc_cooldown_secs: i64,
+    pub filebase_bucket_name: Option<String>,
+    pub filebase_s3_endpoint: Option<String>,
+    pub filebase_region: Option<String>,
+    pub filebase_access_key: Option<String>,
+    pub filebase_secret_key: Option<String>,
+    pub filebase_gateway_base_url: Option<String>,
+    pub filebase_ipfs_rpc_url: Option<String>,
+    pub filebase_ipfs_rpc_token: Option<String>,
 }
 
 impl Environment {
@@ -69,7 +79,7 @@ impl Environment {
                 .or_else(|| optional_env("MONAD_OPERATOR_PRIVATE_KEY")),
             monad_rpc_url,
             monad_rpc_urls,
-            monad_chain_id: parse_env("MONAD_CHAIN_ID", 4202)?,
+            monad_chain_id: parse_env("MONAD_CHAIN_ID", 10143)?,
             access_control_address: required_address_env("ACCESS_CONTROL_ADDRESS")?,
             asset_factory_address: required_address_env("ASSET_FACTORY_ADDRESS")?,
             compliance_registry_address: required_address_env("COMPLIANCE_REGISTRY_ADDRESS")?,
@@ -91,6 +101,16 @@ impl Environment {
             aa_user_operation_timeout_ms: parse_env("AA_USER_OPERATION_TIMEOUT_MS", 120_000)?,
             aa_owner_encryption_key: required_env("AA_OWNER_ENCRYPTION_KEY")?,
             aa_owner_encryption_key_version: parse_env("AA_OWNER_ENCRYPTION_KEY_VERSION", 1)?,
+            faucet_usdc_amount: parse_env("FAUCET_USDC_AMOUNT", "10000000000".to_owned())?,
+            faucet_usdc_cooldown_secs: parse_env("FAUCET_USDC_COOLDOWN_SECS", 3600)?,
+            filebase_bucket_name: optional_env("FILEBASE_BUCKET_NAME"),
+            filebase_s3_endpoint: optional_env("FILEBASE_S3_ENDPOINT"),
+            filebase_region: optional_env("FILEBASE_REGION"),
+            filebase_access_key: optional_env("FILEBASE_ACCESS_KEY"),
+            filebase_secret_key: optional_env("FILEBASE_SECRET_KEY"),
+            filebase_gateway_base_url: optional_env("FILEBASE_GATEWAY_BASE_URL"),
+            filebase_ipfs_rpc_url: optional_env("FILEBASE_IPFS_RPC_URL"),
+            filebase_ipfs_rpc_token: optional_env("FILEBASE_IPFS_RPC_TOKEN"),
         })
     }
 

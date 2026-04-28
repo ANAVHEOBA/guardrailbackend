@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
 };
 
 use crate::{
@@ -9,15 +9,17 @@ use crate::{
         asset::schema::{
             AdminBurnAssetRequest, AdminControllerTransferRequest, AdminCreateAssetRequest,
             AdminIssueAssetRequest, AdminProcessRedemptionRequest, AdminRegisterAssetTypeRequest,
+            AdminSetAssetCatalogRequest,
             AdminSetAssetComplianceRegistryRequest, AdminSetAssetMetadataRequest,
             AdminSetAssetPriceRequest, AdminSetAssetPricingRequest,
             AdminSetAssetSelfServicePurchaseRequest, AdminSetAssetStateRequest,
             AdminSetAssetTreasuryRequest, AssetFactoryStatusResponse, AssetFactoryWriteResponse,
-            AssetHolderStateResponse, AssetListResponse, AssetPreviewRequest, AssetPreviewResponse,
-            AssetResponse, AssetTransferCheckResponse, AssetTypeListResponse, AssetTypeResponse,
+            AssetCatalogWriteResponse, AssetHolderStateResponse, AssetListResponse,
+            AssetPreviewRequest, AssetPreviewResponse, AssetResponse,
+            AssetTransferCheckResponse, AssetTypeListResponse, AssetTypeResponse,
             AssetTypeWriteResponse, AssetWriteResponse, GaslessApprovePaymentTokenRequest,
             GaslessAssetActionResponse, GaslessCancelRedemptionRequest, GaslessClaimYieldRequest,
-            GaslessPurchaseAssetRequest, GaslessRedeemAssetRequest,
+            GaslessPurchaseAssetRequest, GaslessRedeemAssetRequest, ListAssetsQuery,
         },
         auth::error::AuthError,
     },
@@ -45,8 +47,9 @@ pub async fn get_asset_type(
 
 pub async fn list_assets(
     State(state): State<AppState>,
+    Query(query): Query<ListAssetsQuery>,
 ) -> Result<Json<AssetListResponse>, AuthError> {
-    Ok(Json(asset::list_assets(&state).await?))
+    Ok(Json(asset::list_assets(&state, query).await?))
 }
 
 pub async fn list_assets_by_type(
@@ -65,6 +68,13 @@ pub async fn get_asset_by_proposal(
     Ok(Json(
         asset::get_asset_by_proposal(&state, &proposal_id).await?,
     ))
+}
+
+pub async fn get_asset_by_slug(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Json<AssetResponse>, AuthError> {
+    Ok(Json(asset::get_asset_by_slug(&state, &slug).await?))
 }
 
 pub async fn get_asset(
@@ -254,6 +264,18 @@ pub async fn set_metadata_hash(
 ) -> Result<Json<AssetWriteResponse>, AuthError> {
     Ok(Json(
         asset::set_metadata_hash(&state, authenticated_user.user_id, &asset_address, payload)
+            .await?,
+    ))
+}
+
+pub async fn set_asset_catalog(
+    State(state): State<AppState>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
+    Path(asset_address): Path<String>,
+    Json(payload): Json<AdminSetAssetCatalogRequest>,
+) -> Result<Json<AssetCatalogWriteResponse>, AuthError> {
+    Ok(Json(
+        asset::set_asset_catalog(&state, authenticated_user.user_id, &asset_address, payload)
             .await?,
     ))
 }

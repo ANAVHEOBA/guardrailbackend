@@ -20,15 +20,18 @@ use crate::{
                 AdminBurnAssetRequest, AdminControllerTransferRequest, AdminCreateAssetRequest,
                 AdminIssueAssetRequest, AdminProcessRedemptionRequest,
                 AdminRegisterAssetTypeRequest, AdminSetAssetComplianceRegistryRequest,
+                AdminSetAssetCatalogRequest,
                 AdminSetAssetMetadataRequest, AdminSetAssetPriceRequest,
                 AdminSetAssetPricingRequest, AdminSetAssetSelfServicePurchaseRequest,
                 AdminSetAssetStateRequest, AdminSetAssetTreasuryRequest,
-                AssetFactoryStatusResponse, AssetFactoryWriteResponse, AssetHolderStateResponse,
-                AssetListResponse, AssetPreviewRequest, AssetPreviewResponse, AssetResponse,
+                AssetCatalogWriteResponse, AssetFactoryStatusResponse,
+                AssetFactoryWriteResponse, AssetHolderStateResponse, AssetListResponse,
+                AssetPreviewRequest, AssetPreviewResponse, AssetResponse,
                 AssetTransferCheckResponse, AssetTypeListResponse, AssetTypeResponse,
                 AssetTypeWriteResponse, AssetWriteResponse, GaslessApprovePaymentTokenRequest,
                 GaslessAssetActionResponse, GaslessCancelRedemptionRequest,
-                GaslessClaimYieldRequest, GaslessPurchaseAssetRequest, GaslessRedeemAssetRequest,
+                GaslessClaimYieldRequest, GaslessPurchaseAssetRequest,
+                GaslessRedeemAssetRequest, ListAssetsQuery,
             },
         },
         auth::{crud as auth_crud, error::AuthError},
@@ -46,6 +49,9 @@ use crate::{
 use self::abi::{asset_factory_abi, base_asset_token_abi, erc20_abi};
 
 pub mod abi;
+
+const DEFAULT_LIST_LIMIT: i64 = 20;
+const MAX_LIST_LIMIT: i64 = 100;
 
 #[derive(Debug, Clone)]
 struct AssetFactorySnapshot {
@@ -90,6 +96,16 @@ struct AssetHolderSnapshot {
     unlocked_balance: String,
     payment_token_balance: String,
     payment_token_allowance_to_treasury: String,
+}
+
+struct NormalizedAssetListQuery {
+    asset_type_id: Option<String>,
+    q: Option<String>,
+    asset_state: Option<i32>,
+    self_service_purchase_enabled: Option<bool>,
+    featured: Option<bool>,
+    limit: i64,
+    offset: i64,
 }
 
 pub async fn get_factory_status(state: &AppState) -> Result<AssetFactoryStatusResponse, AuthError> {
@@ -275,30 +291,44 @@ pub async fn create_asset(
     )
     .await?;
 
+    upsert_asset_catalog(
+        state,
+        &record.asset_address,
+        Some(actor_user_id),
+        Some(actor_user_id),
+        build_catalog_slug(payload.slug.as_deref(), &payload.name)?,
+        payload.image_url.as_deref(),
+        payload.summary.as_deref(),
+        payload.featured,
+        payload.visible,
+        payload.searchable,
+    )
+    .await?;
+
+    let record = crud::get_asset(&state.db, state.env.monad_chain_id, &record.asset_address)
+        .await?
+        .ok_or_else(|| AuthError::internal("asset missing after catalog update", "missing asset"))?;
+
     Ok(AssetWriteResponse {
         tx_hash,
         asset: AssetResponse::from(record),
     })
 }
 
-pub async fn list_assets(state: &AppState) -> Result<AssetListResponse, AuthError> {
+pub async fn list_assets(
+    state: &AppState,
+    query: ListAssetsQuery,
+) -> Result<AssetListResponse, AuthError> {
+    let normalized = normalize_list_assets_query(query)?;
+
     match read_all_asset_addresses(&state.env).await {
         Ok(asset_addresses) => {
-            let mut assets = Vec::with_capacity(asset_addresses.len());
             for asset_address in asset_addresses {
-                assets.push(AssetResponse::from(
-                    sync_asset(state, asset_address, None, None, None).await?,
-                ));
+                let _ = sync_asset(state, asset_address, None, None, None).await;
             }
-            Ok(AssetListResponse { assets })
+            list_assets_from_db(state, &normalized).await
         }
-        Err(_error) => Ok(AssetListResponse {
-            assets: crud::list_assets(&state.db)
-                .await?
-                .into_iter()
-                .map(AssetResponse::from)
-                .collect(),
-        }),
+        Err(_error) => list_assets_from_db(state, &normalized).await,
     }
 }
 
@@ -307,24 +337,24 @@ pub async fn list_assets_by_type(
     asset_type_id: &str,
 ) -> Result<AssetListResponse, AuthError> {
     let asset_type_id = parse_bytes32_input(asset_type_id, "asset_type_id")?;
+    let normalized = NormalizedAssetListQuery {
+        asset_type_id: Some(format_h256(asset_type_id)),
+        q: None,
+        asset_state: None,
+        self_service_purchase_enabled: None,
+        featured: None,
+        limit: DEFAULT_LIST_LIMIT,
+        offset: 0,
+    };
 
     match read_asset_addresses_by_type(&state.env, asset_type_id).await {
         Ok(asset_addresses) => {
-            let mut assets = Vec::with_capacity(asset_addresses.len());
             for asset_address in asset_addresses {
-                assets.push(AssetResponse::from(
-                    sync_asset(state, asset_address, None, None, None).await?,
-                ));
+                let _ = sync_asset(state, asset_address, None, None, None).await;
             }
-            Ok(AssetListResponse { assets })
+            list_assets_from_db(state, &normalized).await
         }
-        Err(_error) => Ok(AssetListResponse {
-            assets: crud::list_assets_by_type(&state.db, &format_h256(asset_type_id))
-                .await?
-                .into_iter()
-                .map(AssetResponse::from)
-                .collect(),
-        }),
+        Err(_error) => list_assets_from_db(state, &normalized).await,
     }
 }
 
@@ -338,11 +368,11 @@ pub async fn get_asset_by_proposal(
         Ok(asset_address) if asset_address != Address::zero() => Ok(AssetResponse::from(
             sync_asset(state, asset_address, None, None, None).await?,
         )),
-        Ok(_) => match crud::get_asset_by_proposal(&state.db, proposal_id).await? {
+        Ok(_) => match crud::get_asset_by_proposal(&state.db, state.env.monad_chain_id, proposal_id).await? {
             Some(record) => Ok(AssetResponse::from(record)),
             None => Err(AuthError::not_found("asset not found for proposal")),
         },
-        Err(error) => match crud::get_asset_by_proposal(&state.db, proposal_id).await? {
+        Err(error) => match crud::get_asset_by_proposal(&state.db, state.env.monad_chain_id, proposal_id).await? {
             Some(record) => Ok(AssetResponse::from(record)),
             None => Err(AuthError::internal(
                 "failed to read asset by proposal from factory",
@@ -357,10 +387,28 @@ pub async fn get_asset(state: &AppState, asset_address: &str) -> Result<AssetRes
 
     match sync_asset(state, asset_address, None, None, None).await {
         Ok(record) => Ok(AssetResponse::from(record)),
-        Err(error) => match crud::get_asset(&state.db, &format_address(asset_address)).await? {
+        Err(error) => match crud::get_asset(&state.db, state.env.monad_chain_id, &format_address(asset_address)).await? {
             Some(record) => Ok(AssetResponse::from(record)),
             None => Err(error),
         },
+    }
+}
+
+pub async fn get_asset_by_slug(
+    state: &AppState,
+    slug: &str,
+) -> Result<AssetResponse, AuthError> {
+    let slug = normalize_slug(slug, "asset slug")?;
+
+    match crud::get_asset_by_slug(&state.db, state.env.monad_chain_id, &slug).await? {
+        Some(record) => {
+            let asset_address = parse_address(&record.asset_address)?;
+            match sync_asset(state, asset_address, None, None, None).await {
+                Ok(record) => Ok(AssetResponse::from(record)),
+                Err(_) => Ok(AssetResponse::from(record)),
+            }
+        }
+        None => Err(AuthError::not_found("asset not found")),
     }
 }
 
@@ -707,6 +755,42 @@ pub async fn set_metadata_hash(
         tx_hash,
         asset: AssetResponse::from(asset),
     })
+}
+
+pub async fn set_asset_catalog(
+    state: &AppState,
+    actor_user_id: Uuid,
+    asset_address: &str,
+    payload: AdminSetAssetCatalogRequest,
+) -> Result<AssetCatalogWriteResponse, AuthError> {
+    let asset_address = parse_address(asset_address)?;
+    let asset_record = match sync_asset(state, asset_address, None, Some(actor_user_id), None).await {
+        Ok(record) => record,
+        Err(error) => match crud::get_asset(&state.db, state.env.monad_chain_id, &format_address(asset_address)).await? {
+            Some(record) => record,
+            None => return Err(error),
+        },
+    };
+
+    upsert_asset_catalog(
+        state,
+        &asset_record.asset_address,
+        asset_record.created_by_user_id.or(Some(actor_user_id)),
+        Some(actor_user_id),
+        normalize_slug(&payload.slug, "asset slug")?,
+        payload.image_url.as_deref(),
+        payload.summary.as_deref(),
+        payload.featured,
+        payload.visible,
+        payload.searchable,
+    )
+    .await?;
+
+    let record = crud::get_asset(&state.db, state.env.monad_chain_id, &asset_record.asset_address)
+        .await?
+        .ok_or_else(|| AuthError::internal("asset missing after catalog update", "missing asset"))?;
+
+    Ok(AssetCatalogWriteResponse::from_record(record))
 }
 
 pub async fn set_compliance_registry(
@@ -1078,9 +1162,10 @@ async fn sync_asset(
 ) -> Result<AssetRecord, AuthError> {
     let snapshot = read_asset_snapshot_from_chain(&state.env, asset_address).await?;
 
-    crud::upsert_asset(
+    let record = crud::upsert_asset(
         &state.db,
         &snapshot.asset_address,
+        state.env.monad_chain_id,
         &snapshot.proposal_id,
         &snapshot.asset_type_id,
         &snapshot.name,
@@ -1103,7 +1188,12 @@ async fn sync_asset(
         updated_by_user_id,
         last_tx_hash,
     )
-    .await
+    .await?;
+
+    match crud::get_asset(&state.db, state.env.monad_chain_id, &record.asset_address).await? {
+        Some(record) => Ok(record),
+        None => Ok(record),
+    }
 }
 
 async fn user_wallet_for_action(
@@ -1581,6 +1671,156 @@ fn asset_holder_response(
         payment_token_balance: snapshot.payment_token_balance,
         payment_token_allowance_to_treasury: snapshot.payment_token_allowance_to_treasury,
     }
+}
+
+async fn list_assets_from_db(
+    state: &AppState,
+    query: &NormalizedAssetListQuery,
+) -> Result<AssetListResponse, AuthError> {
+    let assets = crud::list_assets(
+        &state.db,
+        crud::AssetListFilters {
+            chain_id: state.env.monad_chain_id,
+            asset_type_id: query.asset_type_id.as_deref(),
+            q: query.q.as_deref(),
+            asset_state: query.asset_state,
+            self_service_purchase_enabled: query.self_service_purchase_enabled,
+            featured: query.featured,
+            limit: query.limit,
+            offset: query.offset,
+            only_visible: true,
+            require_searchable: query.q.is_some(),
+        },
+    )
+    .await?;
+
+    Ok(AssetListResponse::new(
+        assets.into_iter().map(AssetResponse::from).collect(),
+        query.limit,
+        query.offset,
+    ))
+}
+
+async fn upsert_asset_catalog(
+    state: &AppState,
+    asset_address: &str,
+    created_by_user_id: Option<Uuid>,
+    updated_by_user_id: Option<Uuid>,
+    slug: String,
+    image_url: Option<&str>,
+    summary: Option<&str>,
+    featured: bool,
+    visible: bool,
+    searchable: bool,
+) -> Result<(), AuthError> {
+    crud::upsert_asset_catalog_entry(
+        &state.db,
+        asset_address,
+        &slug,
+        normalize_optional_text(image_url).as_deref(),
+        normalize_optional_text(summary).as_deref(),
+        featured,
+        visible,
+        searchable,
+        created_by_user_id,
+        updated_by_user_id,
+    )
+    .await?;
+
+    Ok(())
+}
+
+fn normalize_list_assets_query(query: ListAssetsQuery) -> Result<NormalizedAssetListQuery, AuthError> {
+    let asset_type_id = query
+        .asset_type_id
+        .as_deref()
+        .map(|value| parse_bytes32_input(value, "asset_type_id").map(format_h256))
+        .transpose()?;
+    let q = normalize_optional_text(query.q.as_deref());
+    let asset_state = query
+        .asset_state
+        .as_deref()
+        .map(parse_asset_state)
+        .transpose()?
+        .map(i32::from);
+    let limit = normalize_limit(query.limit)?;
+    let offset = normalize_offset(query.offset)?;
+
+    Ok(NormalizedAssetListQuery {
+        asset_type_id,
+        q,
+        asset_state,
+        self_service_purchase_enabled: query.self_service_purchase_enabled,
+        featured: query.featured,
+        limit,
+        offset,
+    })
+}
+
+fn build_catalog_slug(raw_slug: Option<&str>, fallback_name: &str) -> Result<String, AuthError> {
+    match normalize_optional_text(raw_slug) {
+        Some(value) => normalize_slug(&value, "asset slug"),
+        None => normalize_slug(fallback_name, "asset name"),
+    }
+}
+
+fn normalize_slug(raw: &str, field_name: &str) -> Result<String, AuthError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(AuthError::bad_request(format!("{field_name} is required")));
+    }
+
+    let mut slug = String::with_capacity(trimmed.len());
+    let mut previous_was_hyphen = false;
+
+    for character in trimmed.chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character.to_ascii_lowercase());
+            previous_was_hyphen = false;
+            continue;
+        }
+
+        if !previous_was_hyphen {
+            slug.push('-');
+            previous_was_hyphen = true;
+        }
+    }
+
+    let normalized = slug.trim_matches('-').to_owned();
+    if normalized.is_empty() {
+        return Err(AuthError::bad_request(format!(
+            "{field_name} must contain letters or numbers",
+        )));
+    }
+
+    Ok(normalized)
+}
+
+fn normalize_optional_text(raw: Option<&str>) -> Option<String> {
+    raw.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    })
+}
+
+fn normalize_limit(raw: Option<i64>) -> Result<i64, AuthError> {
+    let value = raw.unwrap_or(DEFAULT_LIST_LIMIT);
+    if !(1..=MAX_LIST_LIMIT).contains(&value) {
+        return Err(AuthError::bad_request(format!(
+            "limit must be between 1 and {MAX_LIST_LIMIT}",
+        )));
+    }
+
+    Ok(value)
+}
+
+fn normalize_offset(raw: Option<i64>) -> Result<i64, AuthError> {
+    let value = raw.unwrap_or(0);
+    if value < 0 {
+        return Err(AuthError::bad_request("offset must be greater than or equal to zero"));
+    }
+
+    Ok(value)
 }
 
 async fn read_factory_contract(env: &Environment) -> Result<Contract<Provider<Http>>> {

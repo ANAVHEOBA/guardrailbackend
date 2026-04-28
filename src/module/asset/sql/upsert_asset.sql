@@ -1,5 +1,6 @@
 INSERT INTO assets (
     asset_address,
+    chain_id,
     proposal_id,
     asset_type_id,
     name,
@@ -22,7 +23,7 @@ INSERT INTO assets (
     updated_by_user_id,
     last_tx_hash
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
 )
 ON CONFLICT (asset_address) DO UPDATE
 SET
@@ -52,6 +53,7 @@ RETURNING
     asset_address,
     proposal_id,
     asset_type_id,
+    NULL::TEXT AS asset_type_name,
     name,
     symbol,
     max_supply,
@@ -66,6 +68,12 @@ RETURNING
     compliance_registry_address,
     payment_token_address,
     metadata_hash,
+    NULL::TEXT AS slug,
+    NULL::TEXT AS image_url,
+    NULL::TEXT AS summary,
+    FALSE AS featured,
+    TRUE AS visible,
+    TRUE AS searchable,
     holder_count,
     total_pending_redemptions,
     created_by_user_id,

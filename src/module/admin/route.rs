@@ -6,13 +6,14 @@ use axum::{
 use crate::{
     app::AppState,
     middleware::admin::require_admin,
-    module::admin::controller::{me, wallet_challenge, wallet_connect},
+    module::admin::controller::{me, upload_image, wallet_challenge, wallet_connect},
 };
 
 pub fn router(state: AppState) -> Router<AppState> {
     let protected_routes =
         Router::new()
             .route("/me", get(me))
+            .route("/uploads/images", post(upload_image))
             .route_layer(axum_middleware::from_fn_with_state(
                 state.clone(),
                 require_admin,

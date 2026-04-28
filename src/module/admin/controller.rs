@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Extension, State},
+    extract::{Extension, Multipart, State},
 };
 
 use crate::{
@@ -9,7 +9,8 @@ use crate::{
         admin::{
             crud,
             schema::{
-                AdminAuthResponse, AdminMeResponse, AdminWalletChallengeRequest,
+                AdminAuthResponse, AdminImageUploadResponse, AdminMeResponse,
+                AdminWalletChallengeRequest,
                 AdminWalletChallengeResponse, AdminWalletConnectRequest,
             },
         },
@@ -18,6 +19,7 @@ use crate::{
     service::{
         admin_auth::{connect_wallet, create_wallet_challenge},
         jwt::AuthenticatedUser,
+        upload::upload_admin_image,
     },
 };
 
@@ -45,4 +47,14 @@ pub async fn me(
         profile,
         state.env.monad_chain_id,
     )))
+}
+
+pub async fn upload_image(
+    State(state): State<AppState>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
+    multipart: Multipart,
+) -> Result<Json<AdminImageUploadResponse>, AuthError> {
+    Ok(Json(
+        upload_admin_image(&state, authenticated_user, multipart).await?,
+    ))
 }

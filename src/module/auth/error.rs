@@ -44,6 +44,13 @@ impl AuthError {
         }
     }
 
+    pub fn too_many_requests(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            message: message.into(),
+        }
+    }
+
     pub fn internal(
         context: &'static str,
         error: impl std::fmt::Display + std::fmt::Debug,
