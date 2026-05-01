@@ -1,0 +1,407 @@
+{
+  "generated_at": "2026-05-01",
+  "region": "Nigeria",
+  "purpose": "Seed payloads for admin asset onboarding.",
+  "admin_flow": [
+    {
+      "step": 1,
+      "endpoint": "POST /admin/assets/types",
+      "action": "Register shared asset types first."
+    },
+    {
+      "step": 2,
+      "endpoint": "POST /admin/assets",
+      "action": "Create the asset with catalog metadata and initial prices."
+    },
+    {
+      "step": 3,
+      "endpoint": "PUT /admin/assets/{asset_address}/pricing",
+      "action": "Update subscription/redemption pricing after the asset is live or when market prices move."
+    }
+  ],
+  "global_notes": [
+    "Replace every <PLACEHOLDER> value before submitting.",
+    "All large numeric values must stay as strings.",
+    "proposal_id must be unique per chain.",
+    "implementation_address must point to a deployed asset implementation that matches the asset type.",
+    "Use your uploaded image gateway URL for image_url if you want cards in the catalog.",
+    "Keep self_service_purchase_enabled false until compliance and liquidity are ready."
+  ],
+  "market_priority": {
+    "source_date": "2025-09-30",
+    "domestic_debt_stock_reference": {
+      "fgn_bonds_ngn": "61993010577848.50",
+      "nigerian_treasury_bills_ngn": "12683507891000.00",
+      "fgn_sukuk_ngn": "1292557000000.00"
+    },
+    "note": "These figures are from DMO's domestic debt stock by instrument and help explain why sovereign debt should be first-class in the catalog."
+  },
+  "asset_types": [
+    {
+      "key": "ng_sov_tbill",
+      "endpoint": "POST /admin/assets/types",
+      "payload": {
+        "asset_type_id": "NG_SOV_TBILL",
+        "asset_type_name": "Nigeria Treasury Bill",
+        "implementation_address": "<NG_SOV_TBILL_IMPLEMENTATION_ADDRESS>"
+      }
+    },
+    {
+      "key": "ng_sov_bond",
+      "endpoint": "POST /admin/assets/types",
+      "payload": {
+        "asset_type_id": "NG_SOV_BOND",
+        "asset_type_name": "FGN Sovereign Bond",
+        "implementation_address": "<NG_SOV_BOND_IMPLEMENTATION_ADDRESS>"
+      }
+    },
+    {
+      "key": "ng_sov_sukuk",
+      "endpoint": "POST /admin/assets/types",
+      "payload": {
+        "asset_type_id": "NG_SOV_SUKUK",
+        "asset_type_name": "FGN Sovereign Sukuk",
+        "implementation_address": "<NG_SOV_SUKUK_IMPLEMENTATION_ADDRESS>"
+      }
+    },
+    {
+      "key": "ng_corp_bond",
+      "endpoint": "POST /admin/assets/types",
+      "payload": {
+        "asset_type_id": "NG_CORP_BOND",
+        "asset_type_name": "Nigeria Corporate Bond",
+        "implementation_address": "<NG_CORP_BOND_IMPLEMENTATION_ADDRESS>"
+      }
+    },
+    {
+      "key": "ng_comm_paper",
+      "endpoint": "POST /admin/assets/types",
+      "payload": {
+        "asset_type_id": "NG_COMM_PAPER",
+        "asset_type_name": "Nigeria Commercial Paper",
+        "implementation_address": "<NG_COMM_PAPER_IMPLEMENTATION_ADDRESS>"
+      }
+    },
+    {
+      "key": "ng_reit",
+      "endpoint": "POST /admin/assets/types",
+      "payload": {
+        "asset_type_id": "NG_REIT",
+        "asset_type_name": "Nigeria Real Estate Investment Trust",
+        "implementation_address": "<NG_REIT_IMPLEMENTATION_ADDRESS>"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "key": "ntb_364d",
+      "market_segment": "Sovereign money market",
+      "admin_create_endpoint": "POST /admin/assets",
+      "create_payload": {
+        "proposal_id": "20001",
+        "asset_type_id": "NG_SOV_TBILL",
+        "name": "Nigeria Treasury Bills 364-Day Series",
+        "symbol": "NTB364",
+        "max_supply": "<SET_TOKEN_CAP>",
+        "subscription_price": "<SET_CURRENT_TBILL_PRICE>",
+        "redemption_price": "<SET_CURRENT_TBILL_REDEMPTION_VALUE>",
+        "self_service_purchase_enabled": false,
+        "metadata_hash": null,
+        "slug": "nigeria-treasury-bills-364-day",
+        "image_url": "<UPLOAD_IMAGE_GATEWAY_URL>",
+        "summary": "Tokenized short-term exposure to Nigerian Treasury Bills with a 364-day tenor.",
+        "featured": true,
+        "visible": true,
+        "searchable": true
+      },
+      "pricing_update_template": {
+        "endpoint": "PUT /admin/assets/{asset_address}/pricing",
+        "asset_address": "<FILL_AFTER_CREATION>",
+        "payload": {
+          "subscription_price": "<SET_CURRENT_TBILL_PRICE>",
+          "redemption_price": "<SET_CURRENT_TBILL_REDEMPTION_VALUE>"
+        }
+      },
+      "suggested_internal_tags": [
+        "sovereign",
+        "money-market",
+        "ngn",
+        "short-duration"
+      ],
+      "sources": [
+        "https://www.cbn.gov.ng/out/2017/ccd/the%20nigerian%20financial%20system.pdf",
+        "https://www.dmo.gov.ng/fgn-bonds/nigerian-treasury-bills",
+        "https://www.dmo.gov.ng/debt-profile/domestic-debts/debt-stock/5725-federal-government-domestic-debt-stock-by-instrument-as-at-september-30-2025/file"
+      ]
+    },
+    {
+      "key": "fgn_bond_feb_2031",
+      "market_segment": "Sovereign fixed income",
+      "admin_create_endpoint": "POST /admin/assets",
+      "create_payload": {
+        "proposal_id": "20002",
+        "asset_type_id": "NG_SOV_BOND",
+        "name": "FGN 18.50% FEB 2031 Bond",
+        "symbol": "FGN2031",
+        "max_supply": "<SET_TOKEN_CAP>",
+        "subscription_price": "<SET_CURRENT_BOND_PRICE>",
+        "redemption_price": "<SET_CURRENT_BOND_PRICE>",
+        "self_service_purchase_enabled": false,
+        "metadata_hash": null,
+        "slug": "fgn-18-50-feb-2031-bond",
+        "image_url": "<UPLOAD_IMAGE_GATEWAY_URL>",
+        "summary": "Tokenized exposure to a live Federal Government of Nigeria sovereign bond maturing in February 2031.",
+        "featured": true,
+        "visible": true,
+        "searchable": true
+      },
+      "market_snapshot": {
+        "snapshot_date": "2026-04-29",
+        "reference_price": "105.38",
+        "reference_yield_percent": "16.80",
+        "reference_source": "FMDQ bond board"
+      },
+      "pricing_update_template": {
+        "endpoint": "PUT /admin/assets/{asset_address}/pricing",
+        "asset_address": "<FILL_AFTER_CREATION>",
+        "payload": {
+          "subscription_price": "<SET_CURRENT_BOND_PRICE>",
+          "redemption_price": "<SET_CURRENT_BOND_PRICE>"
+        }
+      },
+      "suggested_internal_tags": [
+        "sovereign",
+        "bond",
+        "ngn",
+        "mid-duration"
+      ],
+      "sources": [
+        "https://www.dmo.gov.ng/fgn-bonds",
+        "https://fmdqgroup.com/exchange/",
+        "https://www.dmo.gov.ng/debt-profile/domestic-debts/debt-stock/5725-federal-government-domestic-debt-stock-by-instrument-as-at-september-30-2025/file"
+      ]
+    },
+    {
+      "key": "fgn_sovereign_sukuk",
+      "market_segment": "Sovereign sukuk",
+      "admin_create_endpoint": "POST /admin/assets",
+      "create_payload": {
+        "proposal_id": "20003",
+        "asset_type_id": "NG_SOV_SUKUK",
+        "name": "FGN Sovereign Sukuk",
+        "symbol": "FGNSUKUK",
+        "max_supply": "<SET_TOKEN_CAP>",
+        "subscription_price": "<SET_CURRENT_SUKUK_PRICE>",
+        "redemption_price": "<SET_CURRENT_SUKUK_PRICE>",
+        "self_service_purchase_enabled": false,
+        "metadata_hash": null,
+        "slug": "fgn-sovereign-sukuk",
+        "image_url": "<UPLOAD_IMAGE_GATEWAY_URL>",
+        "summary": "Tokenized exposure to Federal Government of Nigeria sovereign sukuk issuances used for infrastructure-linked funding.",
+        "featured": true,
+        "visible": true,
+        "searchable": true
+      },
+      "pricing_update_template": {
+        "endpoint": "PUT /admin/assets/{asset_address}/pricing",
+        "asset_address": "<FILL_AFTER_CREATION>",
+        "payload": {
+          "subscription_price": "<SET_CURRENT_SUKUK_PRICE>",
+          "redemption_price": "<SET_CURRENT_SUKUK_PRICE>"
+        }
+      },
+      "suggested_internal_tags": [
+        "sovereign",
+        "sukuk",
+        "ngn",
+        "infrastructure"
+      ],
+      "sources": [
+        "https://dmo.gov.ng/index.php/fgn-bonds/sovereign-sukuk",
+        "https://www.dmo.gov.ng/debt-profile/domestic-debts/debt-stock/5725-federal-government-domestic-debt-stock-by-instrument-as-at-september-30-2025/file"
+      ]
+    },
+    {
+      "key": "veritasi_homes_series1_bond",
+      "market_segment": "Corporate real-estate bond",
+      "admin_create_endpoint": "POST /admin/assets",
+      "create_payload": {
+        "proposal_id": "20004",
+        "asset_type_id": "NG_CORP_BOND",
+        "name": "Veritasi Homes 3-Year 20.00% Series 1 Bond",
+        "symbol": "VH2029",
+        "max_supply": "<SET_TOKEN_CAP>",
+        "subscription_price": "<SET_CURRENT_BOND_PRICE>",
+        "redemption_price": "<SET_CURRENT_BOND_PRICE>",
+        "self_service_purchase_enabled": false,
+        "metadata_hash": null,
+        "slug": "veritasi-homes-series-1-bond",
+        "image_url": "<UPLOAD_IMAGE_GATEWAY_URL>",
+        "summary": "Tokenized exposure to Veritasi Homes' 3-year fixed-rate bond used to finance ongoing and new real-estate development projects.",
+        "featured": true,
+        "visible": true,
+        "searchable": true
+      },
+      "market_snapshot": {
+        "listing_date": "2026-04-14",
+        "programme_size_ngn": "30000000000",
+        "series_size_ngn": "10000000000",
+        "coupon_percent": "20.00",
+        "tenor_years": "3"
+      },
+      "pricing_update_template": {
+        "endpoint": "PUT /admin/assets/{asset_address}/pricing",
+        "asset_address": "<FILL_AFTER_CREATION>",
+        "payload": {
+          "subscription_price": "<SET_CURRENT_BOND_PRICE>",
+          "redemption_price": "<SET_CURRENT_BOND_PRICE>"
+        }
+      },
+      "suggested_internal_tags": [
+        "corporate-bond",
+        "real-estate",
+        "ngn",
+        "fixed-income"
+      ],
+      "sources": [
+        "https://fmdqgroup.com/expanding-market-presence-veritasi-homes-properties-plc-lists-%E2%82%A610-00-billion-fixed-rate-bond-on-fmdq-exchange/",
+        "https://fmdqgroup.com/exchange/listed-bonds/"
+      ]
+    },
+    {
+      "key": "sujimoto_cp_programme",
+      "market_segment": "Corporate commercial paper",
+      "admin_create_endpoint": "POST /admin/assets",
+      "create_payload": {
+        "proposal_id": "20005",
+        "asset_type_id": "NG_COMM_PAPER",
+        "name": "Sujimoto Holdings Commercial Paper Programme",
+        "symbol": "SUJICP",
+        "max_supply": "<SET_TOKEN_CAP>",
+        "subscription_price": "<SET_CURRENT_CP_PRICE>",
+        "redemption_price": "<SET_CP_PAR_OR_EXIT_PRICE>",
+        "self_service_purchase_enabled": false,
+        "metadata_hash": null,
+        "slug": "sujimoto-holdings-commercial-paper",
+        "image_url": "<UPLOAD_IMAGE_GATEWAY_URL>",
+        "summary": "Tokenized short-term paper linked to Sujimoto Holdings' registered commercial paper programme for premium Lagos real-estate development activity.",
+        "featured": false,
+        "visible": true,
+        "searchable": true
+      },
+      "market_snapshot": {
+        "registration_date": "2025-03-06",
+        "programme_size_ngn": "20000000000"
+      },
+      "pricing_update_template": {
+        "endpoint": "PUT /admin/assets/{asset_address}/pricing",
+        "asset_address": "<FILL_AFTER_CREATION>",
+        "payload": {
+          "subscription_price": "<SET_CURRENT_CP_PRICE>",
+          "redemption_price": "<SET_CP_PAR_OR_EXIT_PRICE>"
+        }
+      },
+      "suggested_internal_tags": [
+        "commercial-paper",
+        "real-estate",
+        "ngn",
+        "short-duration"
+      ],
+      "sources": [
+        "https://fmdqgroup.com/fmdq-exchange-registers-sujimoto-holdings-limiteds-%E2%82%A620-00-billion-commercial-paper-programme/",
+        "https://fmdqgroup.com/exchange/market-products/commercial-papers/"
+      ]
+    },
+    {
+      "key": "hillcrest_agro_cp_programme",
+      "market_segment": "Corporate commercial paper",
+      "admin_create_endpoint": "POST /admin/assets",
+      "create_payload": {
+        "proposal_id": "20006",
+        "asset_type_id": "NG_COMM_PAPER",
+        "name": "HillCrest Agro Commercial Paper Programme",
+        "symbol": "HAGCP",
+        "max_supply": "<SET_TOKEN_CAP>",
+        "subscription_price": "<SET_CURRENT_CP_PRICE>",
+        "redemption_price": "<SET_CP_PAR_OR_EXIT_PRICE>",
+        "self_service_purchase_enabled": false,
+        "metadata_hash": null,
+        "slug": "hillcrest-agro-commercial-paper",
+        "image_url": "<UPLOAD_IMAGE_GATEWAY_URL>",
+        "summary": "Tokenized short-term paper linked to HillCrest Agro's commercial paper programme supporting large-scale rice processing capacity in Nigeria.",
+        "featured": false,
+        "visible": true,
+        "searchable": true
+      },
+      "market_snapshot": {
+        "registration_date": "2023-09-28",
+        "programme_size_ngn": "5000000000"
+      },
+      "pricing_update_template": {
+        "endpoint": "PUT /admin/assets/{asset_address}/pricing",
+        "asset_address": "<FILL_AFTER_CREATION>",
+        "payload": {
+          "subscription_price": "<SET_CURRENT_CP_PRICE>",
+          "redemption_price": "<SET_CP_PAR_OR_EXIT_PRICE>"
+        }
+      },
+      "suggested_internal_tags": [
+        "commercial-paper",
+        "agriculture",
+        "ngn",
+        "short-duration"
+      ],
+      "sources": [
+        "https://fmdqgroup.com/fmdq-exchange-admits-the-hillcrest-agro-nigeria-limiteds-%E2%82%A65-00-billion-commercial-paper-programme-on-its-platform/",
+        "https://fmdqgroup.com/exchange/market-products/commercial-papers/"
+      ]
+    },
+    {
+      "key": "updc_reit",
+      "market_segment": "Listed real estate investment trust",
+      "admin_create_endpoint": "POST /admin/assets",
+      "create_payload": {
+        "proposal_id": "20007",
+        "asset_type_id": "NG_REIT",
+        "name": "UPDC Real Estate Investment Trust",
+        "symbol": "UPDCREIT",
+        "max_supply": "<SET_TOKEN_CAP>",
+        "subscription_price": "<SET_CURRENT_REIT_PRICE>",
+        "redemption_price": "<SET_CURRENT_REIT_PRICE>",
+        "self_service_purchase_enabled": false,
+        "metadata_hash": null,
+        "slug": "updc-real-estate-investment-trust",
+        "image_url": "<UPLOAD_IMAGE_GATEWAY_URL>",
+        "summary": "Tokenized exposure to a listed Nigerian REIT backed by a diversified portfolio of income-producing commercial and residential real estate assets.",
+        "featured": true,
+        "visible": true,
+        "searchable": true
+      },
+      "market_snapshot": {
+        "report_date": "2025-03-27",
+        "listing_exchange": "NGX",
+        "units_issued": "2668269500",
+        "distribution_policy_note": "At least 90% of net profit distributed",
+        "market_value_ngn_as_of_2024_03_31": "13741587925.00"
+      },
+      "pricing_update_template": {
+        "endpoint": "PUT /admin/assets/{asset_address}/pricing",
+        "asset_address": "<FILL_AFTER_CREATION>",
+        "payload": {
+          "subscription_price": "<SET_CURRENT_REIT_PRICE>",
+          "redemption_price": "<SET_CURRENT_REIT_PRICE>"
+        }
+      },
+      "suggested_internal_tags": [
+        "reit",
+        "real-estate",
+        "listed-fund",
+        "ngn"
+      ],
+      "sources": [
+        "https://doclib.ngxgroup.com/Financial_NewsDocs/43510__UPDC_REAL_ESTATE_INVESTMENT_TRUST-_QUARTER_5_-_FINANCIAL_STATEMENT_FOR_2024_FINANCIAL_STATEMENTS_MARCH_2025.pdf",
+        "https://doclib.ngxgroup.com/Financial_NewsDocs/40880__UPDC_REAL_ESTATE_INVESTMENT_TRUST-MARCH_2023_UPDC_REIT_FACTSHEET_CORPORATE_ACTIONS_APRIL_2024.pdf"
+      ]
+    }
+  ]
+}
