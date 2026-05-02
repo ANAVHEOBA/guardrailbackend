@@ -2,7 +2,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    module::asset::model::{AssetCatalogRecord, AssetRecord, AssetTypeRecord},
+    module::{
+        asset::model::{AssetCatalogRecord, AssetRecord, AssetTypeRecord},
+        compliance::schema::ComplianceAssetRulesResponse,
+        oracle::schema::OracleValuationResponse,
+        treasury::schema::TreasuryAssetResponse,
+    },
     service::chain::bytes32_text_from_hex,
 };
 
@@ -15,6 +20,16 @@ pub struct ListAssetsQuery {
     pub featured: Option<bool>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct AssetDetailQuery {
+    pub wallet_address: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct AssetHistoryQuery {
+    pub range: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -38,6 +53,11 @@ pub struct AdminCreateAssetRequest {
     pub slug: Option<String>,
     pub image_url: Option<String>,
     pub summary: Option<String>,
+    pub market_segment: Option<String>,
+    #[serde(default)]
+    pub suggested_internal_tags: Vec<String>,
+    #[serde(default)]
+    pub sources: Vec<String>,
     #[serde(default)]
     pub featured: bool,
     #[serde(default = "default_true")]
@@ -90,6 +110,11 @@ pub struct AdminSetAssetCatalogRequest {
     pub slug: String,
     pub image_url: Option<String>,
     pub summary: Option<String>,
+    pub market_segment: Option<String>,
+    #[serde(default)]
+    pub suggested_internal_tags: Vec<String>,
+    #[serde(default)]
+    pub sources: Vec<String>,
     #[serde(default)]
     pub featured: bool,
     #[serde(default = "default_true")]
@@ -209,6 +234,9 @@ pub struct AssetResponse {
     pub symbol: String,
     pub image_url: Option<String>,
     pub summary: Option<String>,
+    pub market_segment: Option<String>,
+    pub suggested_internal_tags: Vec<String>,
+    pub sources: Vec<String>,
     pub featured: bool,
     pub visible: bool,
     pub searchable: bool,
@@ -256,6 +284,36 @@ pub struct AssetTransferCheckResponse {
     pub status_code: String,
     pub reason_code: String,
     pub reason: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AssetDetailResponse {
+    pub asset: AssetResponse,
+    pub treasury: Option<TreasuryAssetResponse>,
+    pub compliance_rules: Option<ComplianceAssetRulesResponse>,
+    pub valuation: Option<OracleValuationResponse>,
+    pub holder: Option<AssetHolderStateResponse>,
+    pub unavailable_sections: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AssetHistoryCandleResponse {
+    pub timestamp: i64,
+    pub value: String,
+    pub open: String,
+    pub high: String,
+    pub low: String,
+    pub close: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AssetHistoryResponse {
+    pub asset_address: String,
+    pub range: String,
+    pub interval: String,
+    pub last_updated_at: Option<i64>,
+    pub primary_market_price: Vec<AssetHistoryCandleResponse>,
+    pub underlying_market_price: Vec<AssetHistoryCandleResponse>,
 }
 
 #[derive(Debug, Serialize)]
@@ -310,11 +368,16 @@ impl From<AssetRecord> for AssetResponse {
             asset_type_id_text: bytes32_text_from_hex(&record.asset_type_id),
             asset_type_id: record.asset_type_id,
             asset_type_name: record.asset_type_name,
-            slug: record.slug.or_else(|| Some(default_asset_slug(&record.name))),
+            slug: record
+                .slug
+                .or_else(|| Some(default_asset_slug(&record.name))),
             name: record.name,
             symbol: record.symbol,
             image_url: record.image_url,
             summary: record.summary,
+            market_segment: record.market_segment,
+            suggested_internal_tags: record.suggested_internal_tags,
+            sources: record.sources,
             featured: record.featured,
             visible: record.visible,
             searchable: record.searchable,
@@ -362,6 +425,9 @@ impl From<AssetCatalogRecord> for AdminSetAssetCatalogRequest {
             slug: record.slug,
             image_url: record.image_url,
             summary: record.summary,
+            market_segment: record.market_segment,
+            suggested_internal_tags: record.suggested_internal_tags,
+            sources: record.sources,
             featured: record.featured,
             visible: record.visible,
             searchable: record.searchable,

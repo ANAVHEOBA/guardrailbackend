@@ -37,6 +37,9 @@ pub struct AssetRecord {
     pub slug: Option<String>,
     pub image_url: Option<String>,
     pub summary: Option<String>,
+    pub market_segment: Option<String>,
+    pub suggested_internal_tags: Vec<String>,
+    pub sources: Vec<String>,
     pub featured: bool,
     pub visible: bool,
     pub searchable: bool,
@@ -55,6 +58,9 @@ pub struct AssetCatalogRecord {
     pub slug: String,
     pub image_url: Option<String>,
     pub summary: Option<String>,
+    pub market_segment: Option<String>,
+    pub suggested_internal_tags: Vec<String>,
+    pub sources: Vec<String>,
     pub featured: bool,
     pub visible: bool,
     pub searchable: bool,
@@ -62,4 +68,16 @@ pub struct AssetCatalogRecord {
     pub updated_by_user_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct AssetPriceHistoryRecord {
+    pub asset_address: String,
+    pub price_per_token: String,
+    pub redemption_price_per_token: String,
+    pub source: String,
+    pub tx_hash: Option<String>,
+    pub created_by_user_id: Option<Uuid>,
+    pub observed_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
 }

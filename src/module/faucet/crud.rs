@@ -2,10 +2,7 @@ use uuid::Uuid;
 
 use crate::{
     config::db::DbPool,
-    module::{
-        auth::error::AuthError,
-        faucet::model::FaucetRequestRecord,
-    },
+    module::{auth::error::AuthError, faucet::model::FaucetRequestRecord},
 };
 
 mod sql {

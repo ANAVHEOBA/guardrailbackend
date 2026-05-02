@@ -36,3 +36,16 @@ pub struct OracleDocumentRecord {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+
+#[derive(Debug, Clone, FromRow)]
+pub struct OracleValuationHistoryRecord {
+    pub asset_address: String,
+    pub asset_value: String,
+    pub nav_per_token: String,
+    pub onchain_updated_at: i64,
+    pub reference_id: String,
+    pub tx_hash: Option<String>,
+    pub updated_by_user_id: Option<Uuid>,
+    pub observed_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}

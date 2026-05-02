@@ -10,8 +10,8 @@ use crate::{
             crud,
             schema::{
                 AdminAuthResponse, AdminImageUploadResponse, AdminMeResponse,
-                AdminWalletChallengeRequest,
-                AdminWalletChallengeResponse, AdminWalletConnectRequest,
+                AdminWalletChallengeRequest, AdminWalletChallengeResponse,
+                AdminWalletConnectRequest,
             },
         },
         auth::error::AuthError,

@@ -10,14 +10,13 @@ use crate::{
 };
 
 pub fn router(state: AppState) -> Router<AppState> {
-    let protected_routes =
-        Router::new()
-            .route("/me", get(me))
-            .route("/uploads/images", post(upload_image))
-            .route_layer(axum_middleware::from_fn_with_state(
-                state.clone(),
-                require_admin,
-            ));
+    let protected_routes = Router::new()
+        .route("/me", get(me))
+        .route("/uploads/images", post(upload_image))
+        .route_layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            require_admin,
+        ));
 
     Router::new()
         .route("/auth/wallet/challenge", post(wallet_challenge))

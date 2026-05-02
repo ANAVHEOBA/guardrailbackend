@@ -8,8 +8,7 @@ use crate::{
     module::{
         auth::error::AuthError,
         market::schema::{
-            PaymentTokenQuoteQuery, PaymentTokenQuoteResponse,
-            SupportedMarketCurrenciesResponse,
+            PaymentTokenQuoteQuery, PaymentTokenQuoteResponse, SupportedMarketCurrenciesResponse,
         },
     },
     service::market,

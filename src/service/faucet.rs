@@ -35,9 +35,8 @@ pub async fn request_usdc_faucet(
         .await?
         .ok_or_else(|| AuthError::forbidden("user wallet is not linked"))?;
     let recipient = normalize_wallet_address(&wallet.wallet_address)?;
-    let amount = parse_amount(&state.env.faucet_usdc_amount).map_err(|error| {
-        AuthError::internal("invalid FAUCET_USDC_AMOUNT configuration", error)
-    })?;
+    let amount = parse_amount(&state.env.faucet_usdc_amount)
+        .map_err(|error| AuthError::internal("invalid FAUCET_USDC_AMOUNT configuration", error))?;
 
     enforce_cooldown(state, user_id).await?;
 
@@ -102,9 +101,9 @@ async fn enforce_cooldown(state: &AppState, user_id: Uuid) -> Result<(), AuthErr
 }
 
 async fn read_usdc_balance(state: &AppState, address: &str) -> Result<U256, AuthError> {
-    let contract = read_token_contract(&state.env)
-        .await
-        .map_err(|error| AuthError::internal("failed to build faucet token read contract", error))?;
+    let contract = read_token_contract(&state.env).await.map_err(|error| {
+        AuthError::internal("failed to build faucet token read contract", error)
+    })?;
     let address = normalize_wallet_address(address)?;
     let account = address
         .parse::<Address>()

@@ -26,9 +26,7 @@ use crate::{
     module::compliance::route::{
         admin_router as admin_compliance_router, public_router as public_compliance_router,
     },
-    module::faucet::route::{
-        me_router as me_faucet_router, public_router as public_faucet_router,
-    },
+    module::faucet::route::{me_router as me_faucet_router, public_router as public_faucet_router},
     module::market::route::public_router as public_market_router,
     module::oracle::route::{
         admin_router as admin_oracle_router, public_router as public_oracle_router,

@@ -51,6 +51,13 @@ impl AuthError {
         }
     }
 
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message: message.into(),
+        }
+    }
+
     pub fn internal(
         context: &'static str,
         error: impl std::fmt::Display + std::fmt::Debug,

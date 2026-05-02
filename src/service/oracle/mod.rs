@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{TimeZone, Utc};
 use ethers_contract::Contract;
 use ethers_core::{
     abi::{Detokenize, Tokenize},
@@ -13,6 +14,7 @@ use crate::{
     app::AppState,
     config::environment::Environment,
     module::{
+        asset::crud as asset_crud,
         auth::error::AuthError,
         oracle::{
             crud,
@@ -158,6 +160,18 @@ pub async fn submit_valuation_and_sync_pricing(
     let valuation =
         sync_valuation(state, asset_address, Some(actor_user_id), Some(&tx_hash)).await?;
 
+    asset_crud::insert_asset_price_history(
+        &state.db,
+        &format_address(asset_address),
+        &subscription_price.to_string(),
+        &redemption_price.to_string(),
+        "oracle_sync_pricing",
+        Some(&tx_hash),
+        Some(actor_user_id),
+        Some(timestamp_seconds_to_utc(valuation.onchain_updated_at)?),
+    )
+    .await?;
+
     Ok(OracleValuationWriteResponse {
         tx_hash,
         valuation: OracleValuationResponse::from(valuation),
@@ -263,7 +277,7 @@ async fn sync_valuation(
         .await
         .map_err(|error| AuthError::internal("failed to call getLatestValuation", error))?;
 
-    crud::upsert_valuation(
+    let record = crud::upsert_valuation(
         &state.db,
         &format_address(asset_address),
         &asset_value.to_string(),
@@ -274,7 +288,28 @@ async fn sync_valuation(
         updated_by_user_id,
         last_tx_hash,
     )
-    .await
+    .await?;
+
+    crud::insert_valuation_history(
+        &state.db,
+        &record.asset_address,
+        &record.asset_value,
+        &record.nav_per_token,
+        record.onchain_updated_at,
+        &record.reference_id,
+        last_tx_hash,
+        updated_by_user_id,
+        timestamp_seconds_to_utc(record.onchain_updated_at)?,
+    )
+    .await?;
+
+    Ok(record)
+}
+
+fn timestamp_seconds_to_utc(timestamp: i64) -> Result<chrono::DateTime<Utc>, AuthError> {
+    Utc.timestamp_opt(timestamp, 0)
+        .single()
+        .ok_or_else(|| AuthError::bad_request("valuation updated_at is out of range"))
 }
 
 async fn sync_document(

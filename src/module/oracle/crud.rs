@@ -4,15 +4,22 @@ use crate::{
     config::db::DbPool,
     module::{
         auth::error::AuthError,
-        oracle::model::{OracleDocumentRecord, OracleTrustedOracleRecord, OracleValuationRecord},
+        oracle::model::{
+            OracleDocumentRecord, OracleTrustedOracleRecord, OracleValuationHistoryRecord,
+            OracleValuationRecord,
+        },
     },
 };
+
+use chrono::{DateTime, Utc};
 
 mod sql {
     pub const GET_TRUSTED_ORACLE: &str = include_str!("sql/get_trusted_oracle.sql");
     pub const UPSERT_TRUSTED_ORACLE: &str = include_str!("sql/upsert_trusted_oracle.sql");
     pub const GET_VALUATION: &str = include_str!("sql/get_valuation.sql");
     pub const UPSERT_VALUATION: &str = include_str!("sql/upsert_valuation.sql");
+    pub const INSERT_VALUATION_HISTORY: &str = include_str!("sql/insert_valuation_history.sql");
+    pub const LIST_VALUATION_HISTORY: &str = include_str!("sql/list_valuation_history.sql");
     pub const GET_DOCUMENT: &str = include_str!("sql/get_document.sql");
     pub const UPSERT_DOCUMENT: &str = include_str!("sql/upsert_document.sql");
 }
@@ -75,6 +82,47 @@ pub async fn upsert_valuation(
         .bind(updated_by_user_id)
         .bind(last_tx_hash)
         .fetch_one(pool)
+        .await
+        .map_err(AuthError::from)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_valuation_history(
+    pool: &DbPool,
+    asset_address: &str,
+    asset_value: &str,
+    nav_per_token: &str,
+    onchain_updated_at: i64,
+    reference_id: &str,
+    tx_hash: Option<&str>,
+    updated_by_user_id: Option<Uuid>,
+    observed_at: DateTime<Utc>,
+) -> Result<(), AuthError> {
+    sqlx::query(sql::INSERT_VALUATION_HISTORY)
+        .bind(asset_address)
+        .bind(asset_value)
+        .bind(nav_per_token)
+        .bind(onchain_updated_at)
+        .bind(reference_id)
+        .bind(tx_hash)
+        .bind(updated_by_user_id)
+        .bind(observed_at)
+        .execute(pool)
+        .await
+        .map_err(AuthError::from)?;
+
+    Ok(())
+}
+
+pub async fn list_valuation_history(
+    pool: &DbPool,
+    asset_address: &str,
+    observed_from: Option<DateTime<Utc>>,
+) -> Result<Vec<OracleValuationHistoryRecord>, AuthError> {
+    sqlx::query_as::<_, OracleValuationHistoryRecord>(sql::LIST_VALUATION_HISTORY)
+        .bind(asset_address)
+        .bind(observed_from)
+        .fetch_all(pool)
         .await
         .map_err(AuthError::from)
 }

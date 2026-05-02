@@ -1,4 +1,7 @@
+use std::{future::Future, str::FromStr};
+
 use anyhow::{Result, anyhow};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use ethers_contract::Contract;
 use ethers_core::{
     abi::{Detokenize, Token, Tokenize, encode},
@@ -7,6 +10,7 @@ use ethers_core::{
 use ethers_middleware::SignerMiddleware;
 use ethers_providers::{Http, Provider};
 use ethers_signers::LocalWallet;
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::{
@@ -15,26 +19,27 @@ use crate::{
     module::{
         asset::{
             crud,
-            model::{AssetRecord, AssetTypeRecord},
+            model::{AssetPriceHistoryRecord, AssetRecord, AssetTypeRecord},
             schema::{
                 AdminBurnAssetRequest, AdminControllerTransferRequest, AdminCreateAssetRequest,
                 AdminIssueAssetRequest, AdminProcessRedemptionRequest,
-                AdminRegisterAssetTypeRequest, AdminSetAssetComplianceRegistryRequest,
-                AdminSetAssetCatalogRequest,
-                AdminSetAssetMetadataRequest, AdminSetAssetPriceRequest,
-                AdminSetAssetPricingRequest, AdminSetAssetSelfServicePurchaseRequest,
-                AdminSetAssetStateRequest, AdminSetAssetTreasuryRequest,
-                AssetCatalogWriteResponse, AssetFactoryStatusResponse,
-                AssetFactoryWriteResponse, AssetHolderStateResponse, AssetListResponse,
-                AssetPreviewRequest, AssetPreviewResponse, AssetResponse,
-                AssetTransferCheckResponse, AssetTypeListResponse, AssetTypeResponse,
-                AssetTypeWriteResponse, AssetWriteResponse, GaslessApprovePaymentTokenRequest,
-                GaslessAssetActionResponse, GaslessCancelRedemptionRequest,
-                GaslessClaimYieldRequest, GaslessPurchaseAssetRequest,
-                GaslessRedeemAssetRequest, ListAssetsQuery,
+                AdminRegisterAssetTypeRequest, AdminSetAssetCatalogRequest,
+                AdminSetAssetComplianceRegistryRequest, AdminSetAssetMetadataRequest,
+                AdminSetAssetPriceRequest, AdminSetAssetPricingRequest,
+                AdminSetAssetSelfServicePurchaseRequest, AdminSetAssetStateRequest,
+                AdminSetAssetTreasuryRequest, AssetCatalogWriteResponse, AssetDetailQuery,
+                AssetDetailResponse, AssetFactoryStatusResponse, AssetFactoryWriteResponse,
+                AssetHistoryCandleResponse, AssetHistoryQuery, AssetHistoryResponse,
+                AssetHolderStateResponse, AssetListResponse, AssetPreviewRequest,
+                AssetPreviewResponse, AssetResponse, AssetTransferCheckResponse,
+                AssetTypeListResponse, AssetTypeResponse, AssetTypeWriteResponse,
+                AssetWriteResponse, GaslessApprovePaymentTokenRequest, GaslessAssetActionResponse,
+                GaslessCancelRedemptionRequest, GaslessClaimYieldRequest,
+                GaslessPurchaseAssetRequest, GaslessRedeemAssetRequest, ListAssetsQuery,
             },
         },
         auth::{crud as auth_crud, error::AuthError},
+        oracle::{crud as oracle_crud, model::OracleValuationHistoryRecord},
     },
     service::{
         chain::{
@@ -42,7 +47,7 @@ use crate::{
             parse_address, parse_asset_state, parse_bytes_input, parse_bytes32_input,
             parse_contract_address, parse_u256, wait_for_receipt,
         },
-        gasless, rpc,
+        compliance, gasless, oracle, rpc, treasury,
     },
 };
 
@@ -52,6 +57,7 @@ pub mod abi;
 
 const DEFAULT_LIST_LIMIT: i64 = 20;
 const MAX_LIST_LIMIT: i64 = 100;
+const DEFAULT_HISTORY_RANGE: &str = "1day";
 
 #[derive(Debug, Clone)]
 struct AssetFactorySnapshot {
@@ -96,6 +102,20 @@ struct AssetHolderSnapshot {
     unlocked_balance: String,
     payment_token_balance: String,
     payment_token_allowance_to_treasury: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AssetHistoryWindow {
+    range: &'static str,
+    interval_label: &'static str,
+    interval: Duration,
+    observed_from: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone)]
+struct HistorySample {
+    observed_at: DateTime<Utc>,
+    value: Decimal,
 }
 
 struct NormalizedAssetListQuery {
@@ -291,6 +311,15 @@ pub async fn create_asset(
     )
     .await?;
 
+    record_asset_price_history(
+        state,
+        &record,
+        "create_asset",
+        Some(actor_user_id),
+        Some(&tx_hash),
+    )
+    .await?;
+
     upsert_asset_catalog(
         state,
         &record.asset_address,
@@ -299,6 +328,9 @@ pub async fn create_asset(
         build_catalog_slug(payload.slug.as_deref(), &payload.name)?,
         payload.image_url.as_deref(),
         payload.summary.as_deref(),
+        payload.market_segment.as_deref(),
+        &payload.suggested_internal_tags,
+        &payload.sources,
         payload.featured,
         payload.visible,
         payload.searchable,
@@ -307,7 +339,9 @@ pub async fn create_asset(
 
     let record = crud::get_asset(&state.db, state.env.monad_chain_id, &record.asset_address)
         .await?
-        .ok_or_else(|| AuthError::internal("asset missing after catalog update", "missing asset"))?;
+        .ok_or_else(|| {
+            AuthError::internal("asset missing after catalog update", "missing asset")
+        })?;
 
     Ok(AssetWriteResponse {
         tx_hash,
@@ -368,17 +402,25 @@ pub async fn get_asset_by_proposal(
         Ok(asset_address) if asset_address != Address::zero() => Ok(AssetResponse::from(
             sync_asset(state, asset_address, None, None, None).await?,
         )),
-        Ok(_) => match crud::get_asset_by_proposal(&state.db, state.env.monad_chain_id, proposal_id).await? {
-            Some(record) => Ok(AssetResponse::from(record)),
-            None => Err(AuthError::not_found("asset not found for proposal")),
-        },
-        Err(error) => match crud::get_asset_by_proposal(&state.db, state.env.monad_chain_id, proposal_id).await? {
-            Some(record) => Ok(AssetResponse::from(record)),
-            None => Err(AuthError::internal(
-                "failed to read asset by proposal from factory",
-                error,
-            )),
-        },
+        Ok(_) => {
+            match crud::get_asset_by_proposal(&state.db, state.env.monad_chain_id, proposal_id)
+                .await?
+            {
+                Some(record) => Ok(AssetResponse::from(record)),
+                None => Err(AuthError::not_found("asset not found for proposal")),
+            }
+        }
+        Err(error) => {
+            match crud::get_asset_by_proposal(&state.db, state.env.monad_chain_id, proposal_id)
+                .await?
+            {
+                Some(record) => Ok(AssetResponse::from(record)),
+                None => Err(AuthError::internal(
+                    "failed to read asset by proposal from factory",
+                    error,
+                )),
+            }
+        }
     }
 }
 
@@ -387,17 +429,29 @@ pub async fn get_asset(state: &AppState, asset_address: &str) -> Result<AssetRes
 
     match sync_asset(state, asset_address, None, None, None).await {
         Ok(record) => Ok(AssetResponse::from(record)),
-        Err(error) => match crud::get_asset(&state.db, state.env.monad_chain_id, &format_address(asset_address)).await? {
+        Err(error) => match crud::get_asset(
+            &state.db,
+            state.env.monad_chain_id,
+            &format_address(asset_address),
+        )
+        .await?
+        {
             Some(record) => Ok(AssetResponse::from(record)),
             None => Err(error),
         },
     }
 }
 
-pub async fn get_asset_by_slug(
+pub async fn get_asset_detail(
     state: &AppState,
-    slug: &str,
-) -> Result<AssetResponse, AuthError> {
+    asset_address: &str,
+    query: AssetDetailQuery,
+) -> Result<AssetDetailResponse, AuthError> {
+    let asset = get_asset(state, asset_address).await?;
+    build_asset_detail(state, asset, query).await
+}
+
+pub async fn get_asset_by_slug(state: &AppState, slug: &str) -> Result<AssetResponse, AuthError> {
     let slug = normalize_slug(slug, "asset slug")?;
 
     match crud::get_asset_by_slug(&state.db, state.env.monad_chain_id, &slug).await? {
@@ -410,6 +464,51 @@ pub async fn get_asset_by_slug(
         }
         None => Err(AuthError::not_found("asset not found")),
     }
+}
+
+pub async fn get_asset_detail_by_slug(
+    state: &AppState,
+    slug: &str,
+    query: AssetDetailQuery,
+) -> Result<AssetDetailResponse, AuthError> {
+    let asset = get_asset_by_slug(state, slug).await?;
+    build_asset_detail(state, asset, query).await
+}
+
+pub async fn get_asset_detail_by_proposal(
+    state: &AppState,
+    proposal_id: &str,
+    query: AssetDetailQuery,
+) -> Result<AssetDetailResponse, AuthError> {
+    let asset = get_asset_by_proposal(state, proposal_id).await?;
+    build_asset_detail(state, asset, query).await
+}
+
+pub async fn get_asset_history(
+    state: &AppState,
+    asset_address: &str,
+    query: AssetHistoryQuery,
+) -> Result<AssetHistoryResponse, AuthError> {
+    let asset = get_asset(state, asset_address).await?;
+    build_asset_history(state, asset, query).await
+}
+
+pub async fn get_asset_history_by_slug(
+    state: &AppState,
+    slug: &str,
+    query: AssetHistoryQuery,
+) -> Result<AssetHistoryResponse, AuthError> {
+    let asset = get_asset_by_slug(state, slug).await?;
+    build_asset_history(state, asset, query).await
+}
+
+pub async fn get_asset_history_by_proposal(
+    state: &AppState,
+    proposal_id: &str,
+    query: AssetHistoryQuery,
+) -> Result<AssetHistoryResponse, AuthError> {
+    let asset = get_asset_by_proposal(state, proposal_id).await?;
+    build_asset_history(state, asset, query).await
 }
 
 pub async fn get_asset_holder_state(
@@ -428,6 +527,130 @@ pub async fn get_asset_holder_state(
         &asset_snapshot.asset_address,
         holder_snapshot,
     ))
+}
+
+async fn build_asset_detail(
+    state: &AppState,
+    asset: AssetResponse,
+    query: AssetDetailQuery,
+) -> Result<AssetDetailResponse, AuthError> {
+    if let Some(wallet_address) = query.wallet_address.as_deref() {
+        parse_address(wallet_address)?;
+    }
+
+    let asset_address = asset.asset_address.clone();
+    let holder_wallet_address = query.wallet_address.clone();
+
+    let treasury_future = optional_detail_section(
+        "treasury",
+        treasury::get_treasury_asset(state, &asset_address),
+    );
+    let compliance_future = optional_detail_section(
+        "compliance_rules",
+        compliance::get_asset_rules(state, &asset_address),
+    );
+    let valuation_future =
+        optional_detail_section("valuation", oracle::get_valuation(state, &asset_address));
+    let holder_future = async {
+        match holder_wallet_address.as_deref() {
+            Some(wallet_address) => {
+                optional_detail_section(
+                    "holder",
+                    get_asset_holder_state(state, &asset_address, wallet_address),
+                )
+                .await
+            }
+            None => (None, None),
+        }
+    };
+
+    let (
+        (treasury, treasury_unavailable),
+        (compliance_rules, compliance_unavailable),
+        (valuation, valuation_unavailable),
+        (holder, holder_unavailable),
+    ) = tokio::join!(
+        treasury_future,
+        compliance_future,
+        valuation_future,
+        holder_future
+    );
+
+    let unavailable_sections = [
+        treasury_unavailable,
+        compliance_unavailable,
+        valuation_unavailable,
+        holder_unavailable,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    Ok(AssetDetailResponse {
+        asset,
+        treasury,
+        compliance_rules,
+        valuation,
+        holder,
+        unavailable_sections,
+    })
+}
+
+async fn build_asset_history(
+    state: &AppState,
+    asset: AssetResponse,
+    query: AssetHistoryQuery,
+) -> Result<AssetHistoryResponse, AuthError> {
+    let window = normalize_asset_history_range(query.range.as_deref())?;
+    let observed_from = window.observed_from;
+    let asset_address = asset.asset_address.clone();
+
+    let (primary_history, valuation_history) = tokio::try_join!(
+        crud::list_asset_price_history(&state.db, &asset_address, observed_from),
+        oracle_crud::list_valuation_history(&state.db, &asset_address, observed_from),
+    )?;
+
+    let mut primary_samples = build_primary_history_samples(&primary_history)?;
+    if primary_samples.is_empty() {
+        primary_samples.push(HistorySample {
+            observed_at: asset.updated_at,
+            value: decimal_from_history_value(&asset.price_per_token, "asset price_per_token")?,
+        });
+    }
+
+    let mut underlying_samples = build_underlying_history_samples(&valuation_history)?;
+    if underlying_samples.is_empty() {
+        if let Some(valuation) = oracle_crud::get_valuation(&state.db, &asset_address).await? {
+            underlying_samples.push(HistorySample {
+                observed_at: timestamp_seconds_to_utc(valuation.onchain_updated_at)?,
+                value: decimal_from_history_value(
+                    &valuation.nav_per_token,
+                    "oracle valuation nav_per_token",
+                )?,
+            });
+        }
+    }
+
+    let primary_market_price = build_history_candles(&primary_samples, window)?;
+    let underlying_market_price = build_history_candles(&underlying_samples, window)?;
+    let last_updated_at = [
+        primary_market_price.last().map(|candle| candle.timestamp),
+        underlying_market_price
+            .last()
+            .map(|candle| candle.timestamp),
+    ]
+    .into_iter()
+    .flatten()
+    .max();
+
+    Ok(AssetHistoryResponse {
+        asset_address,
+        range: window.range.to_owned(),
+        interval: window.interval_label.to_owned(),
+        last_updated_at,
+        primary_market_price,
+        underlying_market_price,
+    })
 }
 
 pub async fn preview_purchase(
@@ -519,6 +742,15 @@ pub async fn issue_asset(
     )
     .await?;
 
+    record_asset_price_history(
+        state,
+        &asset,
+        "set_subscription_price",
+        Some(actor_user_id),
+        Some(&tx_hash),
+    )
+    .await?;
+
     Ok(AssetWriteResponse {
         tx_hash,
         asset: AssetResponse::from(asset),
@@ -553,6 +785,15 @@ pub async fn burn_asset(
     )
     .await?;
 
+    record_asset_price_history(
+        state,
+        &asset,
+        "set_redemption_price",
+        Some(actor_user_id),
+        Some(&tx_hash),
+    )
+    .await?;
+
     Ok(AssetWriteResponse {
         tx_hash,
         asset: AssetResponse::from(asset),
@@ -581,6 +822,15 @@ pub async fn set_asset_state(
         state,
         asset_address,
         None,
+        Some(actor_user_id),
+        Some(&tx_hash),
+    )
+    .await?;
+
+    record_asset_price_history(
+        state,
+        &asset,
+        "set_pricing",
         Some(actor_user_id),
         Some(&tx_hash),
     )
@@ -764,9 +1014,16 @@ pub async fn set_asset_catalog(
     payload: AdminSetAssetCatalogRequest,
 ) -> Result<AssetCatalogWriteResponse, AuthError> {
     let asset_address = parse_address(asset_address)?;
-    let asset_record = match sync_asset(state, asset_address, None, Some(actor_user_id), None).await {
+    let asset_record = match sync_asset(state, asset_address, None, Some(actor_user_id), None).await
+    {
         Ok(record) => record,
-        Err(error) => match crud::get_asset(&state.db, state.env.monad_chain_id, &format_address(asset_address)).await? {
+        Err(error) => match crud::get_asset(
+            &state.db,
+            state.env.monad_chain_id,
+            &format_address(asset_address),
+        )
+        .await?
+        {
             Some(record) => record,
             None => return Err(error),
         },
@@ -780,15 +1037,22 @@ pub async fn set_asset_catalog(
         normalize_slug(&payload.slug, "asset slug")?,
         payload.image_url.as_deref(),
         payload.summary.as_deref(),
+        payload.market_segment.as_deref(),
+        &payload.suggested_internal_tags,
+        &payload.sources,
         payload.featured,
         payload.visible,
         payload.searchable,
     )
     .await?;
 
-    let record = crud::get_asset(&state.db, state.env.monad_chain_id, &asset_record.asset_address)
-        .await?
-        .ok_or_else(|| AuthError::internal("asset missing after catalog update", "missing asset"))?;
+    let record = crud::get_asset(
+        &state.db,
+        state.env.monad_chain_id,
+        &asset_record.asset_address,
+    )
+    .await?
+    .ok_or_else(|| AuthError::internal("asset missing after catalog update", "missing asset"))?;
 
     Ok(AssetCatalogWriteResponse::from_record(record))
 }
@@ -1709,16 +1973,25 @@ async fn upsert_asset_catalog(
     slug: String,
     image_url: Option<&str>,
     summary: Option<&str>,
+    market_segment: Option<&str>,
+    suggested_internal_tags: &[String],
+    sources: &[String],
     featured: bool,
     visible: bool,
     searchable: bool,
 ) -> Result<(), AuthError> {
+    let normalized_tags = normalize_catalog_tags(suggested_internal_tags);
+    let normalized_sources = normalize_string_list(sources);
+
     crud::upsert_asset_catalog_entry(
         &state.db,
         asset_address,
         &slug,
         normalize_optional_text(image_url).as_deref(),
         normalize_optional_text(summary).as_deref(),
+        normalize_optional_text(market_segment).as_deref(),
+        &normalized_tags,
+        &normalized_sources,
         featured,
         visible,
         searchable,
@@ -1730,7 +2003,236 @@ async fn upsert_asset_catalog(
     Ok(())
 }
 
-fn normalize_list_assets_query(query: ListAssetsQuery) -> Result<NormalizedAssetListQuery, AuthError> {
+async fn optional_detail_section<T, F>(
+    section: &'static str,
+    future: F,
+) -> (Option<T>, Option<String>)
+where
+    F: Future<Output = Result<T, AuthError>>,
+{
+    match future.await {
+        Ok(value) => (Some(value), None),
+        Err(error) => {
+            tracing::warn!(section, %error, "asset detail section unavailable");
+            (None, Some(section.to_owned()))
+        }
+    }
+}
+
+async fn record_asset_price_history(
+    state: &AppState,
+    asset: &AssetRecord,
+    source: &str,
+    actor_user_id: Option<Uuid>,
+    tx_hash: Option<&str>,
+) -> Result<(), AuthError> {
+    crud::insert_asset_price_history(
+        &state.db,
+        &asset.asset_address,
+        &asset.price_per_token,
+        &asset.redemption_price_per_token,
+        source,
+        tx_hash,
+        actor_user_id,
+        Some(asset.updated_at),
+    )
+    .await
+}
+
+fn normalize_asset_history_range(raw: Option<&str>) -> Result<AssetHistoryWindow, AuthError> {
+    let range = raw
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_HISTORY_RANGE)
+        .to_ascii_lowercase();
+    let now = Utc::now();
+
+    let window = match range.as_str() {
+        "1day" => AssetHistoryWindow {
+            range: "1day",
+            interval_label: "5m",
+            interval: Duration::minutes(5),
+            observed_from: Some(now - Duration::days(1)),
+        },
+        "1week" => AssetHistoryWindow {
+            range: "1week",
+            interval_label: "1h",
+            interval: Duration::hours(1),
+            observed_from: Some(now - Duration::weeks(1)),
+        },
+        "1month" => AssetHistoryWindow {
+            range: "1month",
+            interval_label: "1d",
+            interval: Duration::days(1),
+            observed_from: Some(now - Duration::days(30)),
+        },
+        "3months" => AssetHistoryWindow {
+            range: "3months",
+            interval_label: "1d",
+            interval: Duration::days(1),
+            observed_from: Some(now - Duration::days(90)),
+        },
+        "1year" => AssetHistoryWindow {
+            range: "1year",
+            interval_label: "1w",
+            interval: Duration::weeks(1),
+            observed_from: Some(now - Duration::days(365)),
+        },
+        "all" => AssetHistoryWindow {
+            range: "all",
+            interval_label: "1w",
+            interval: Duration::weeks(1),
+            observed_from: None,
+        },
+        _ => {
+            return Err(AuthError::bad_request(
+                "range must be one of: 1day, 1week, 1month, 3months, 1year, all",
+            ));
+        }
+    };
+
+    Ok(window)
+}
+
+fn build_primary_history_samples(
+    records: &[AssetPriceHistoryRecord],
+) -> Result<Vec<HistorySample>, AuthError> {
+    records
+        .iter()
+        .map(|record| {
+            Ok(HistorySample {
+                observed_at: record.observed_at,
+                value: decimal_from_history_value(
+                    &record.price_per_token,
+                    "asset price history price_per_token",
+                )?,
+            })
+        })
+        .collect()
+}
+
+fn build_underlying_history_samples(
+    records: &[OracleValuationHistoryRecord],
+) -> Result<Vec<HistorySample>, AuthError> {
+    records
+        .iter()
+        .map(|record| {
+            Ok(HistorySample {
+                observed_at: record.observed_at,
+                value: decimal_from_history_value(
+                    &record.nav_per_token,
+                    "oracle valuation history nav_per_token",
+                )?,
+            })
+        })
+        .collect()
+}
+
+fn build_history_candles(
+    samples: &[HistorySample],
+    window: AssetHistoryWindow,
+) -> Result<Vec<AssetHistoryCandleResponse>, AuthError> {
+    if samples.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let bucket_seconds = window.interval.num_seconds();
+    if bucket_seconds <= 0 {
+        return Err(AuthError::internal(
+            "asset history interval must be positive",
+            bucket_seconds,
+        ));
+    }
+
+    let mut candles = Vec::new();
+    let mut current_bucket_timestamp = None;
+    let mut open = Decimal::ZERO;
+    let mut high = Decimal::ZERO;
+    let mut low = Decimal::ZERO;
+    let mut close = Decimal::ZERO;
+
+    for sample in samples {
+        let bucket_timestamp = bucket_timestamp_millis(sample.observed_at, bucket_seconds)
+            .map_err(|error| {
+                AuthError::internal("failed to bucket asset history timestamp", error)
+            })?;
+
+        match current_bucket_timestamp {
+            Some(timestamp) if timestamp == bucket_timestamp => {
+                if sample.value > high {
+                    high = sample.value;
+                }
+                if sample.value < low {
+                    low = sample.value;
+                }
+                close = sample.value;
+            }
+            Some(timestamp) => {
+                candles.push(history_candle_response(timestamp, open, high, low, close));
+                current_bucket_timestamp = Some(bucket_timestamp);
+                open = sample.value;
+                high = sample.value;
+                low = sample.value;
+                close = sample.value;
+            }
+            None => {
+                current_bucket_timestamp = Some(bucket_timestamp);
+                open = sample.value;
+                high = sample.value;
+                low = sample.value;
+                close = sample.value;
+            }
+        }
+    }
+
+    if let Some(timestamp) = current_bucket_timestamp {
+        candles.push(history_candle_response(timestamp, open, high, low, close));
+    }
+
+    Ok(candles)
+}
+
+fn history_candle_response(
+    timestamp: i64,
+    open: Decimal,
+    high: Decimal,
+    low: Decimal,
+    close: Decimal,
+) -> AssetHistoryCandleResponse {
+    AssetHistoryCandleResponse {
+        timestamp,
+        value: close.normalize().to_string(),
+        open: open.normalize().to_string(),
+        high: high.normalize().to_string(),
+        low: low.normalize().to_string(),
+        close: close.normalize().to_string(),
+    }
+}
+
+fn bucket_timestamp_millis(
+    observed_at: DateTime<Utc>,
+    bucket_seconds: i64,
+) -> std::result::Result<i64, &'static str> {
+    let timestamp = observed_at.timestamp();
+    let bucket_start = timestamp - timestamp.rem_euclid(bucket_seconds);
+    bucket_start
+        .checked_mul(1000)
+        .ok_or("asset history timestamp overflow")
+}
+
+fn decimal_from_history_value(raw: &str, context: &'static str) -> Result<Decimal, AuthError> {
+    Decimal::from_str(raw).map_err(|error| AuthError::internal(context, error))
+}
+
+fn timestamp_seconds_to_utc(timestamp: i64) -> Result<DateTime<Utc>, AuthError> {
+    Utc.timestamp_opt(timestamp, 0)
+        .single()
+        .ok_or_else(|| AuthError::bad_request("history timestamp is out of range"))
+}
+
+fn normalize_list_assets_query(
+    query: ListAssetsQuery,
+) -> Result<NormalizedAssetListQuery, AuthError> {
     let asset_type_id = query
         .asset_type_id
         .as_deref()
@@ -1803,6 +2305,35 @@ fn normalize_optional_text(raw: Option<&str>) -> Option<String> {
     })
 }
 
+fn normalize_catalog_tags(raw: &[String]) -> Vec<String> {
+    normalize_string_list_with(raw, |value| value.to_ascii_lowercase())
+}
+
+fn normalize_string_list(raw: &[String]) -> Vec<String> {
+    normalize_string_list_with(raw, ToOwned::to_owned)
+}
+
+fn normalize_string_list_with<F>(raw: &[String], transform: F) -> Vec<String>
+where
+    F: Fn(&str) -> String,
+{
+    let mut normalized = Vec::new();
+
+    for value in raw {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let candidate = transform(trimmed);
+        if !normalized.iter().any(|existing| existing == &candidate) {
+            normalized.push(candidate);
+        }
+    }
+
+    normalized
+}
+
 fn normalize_limit(raw: Option<i64>) -> Result<i64, AuthError> {
     let value = raw.unwrap_or(DEFAULT_LIST_LIMIT);
     if !(1..=MAX_LIST_LIMIT).contains(&value) {
@@ -1817,7 +2348,9 @@ fn normalize_limit(raw: Option<i64>) -> Result<i64, AuthError> {
 fn normalize_offset(raw: Option<i64>) -> Result<i64, AuthError> {
     let value = raw.unwrap_or(0);
     if value < 0 {
-        return Err(AuthError::bad_request("offset must be greater than or equal to zero"));
+        return Err(AuthError::bad_request(
+            "offset must be greater than or equal to zero",
+        ));
     }
 
     Ok(value)

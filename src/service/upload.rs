@@ -46,11 +46,10 @@ struct FilebaseUploadConfig {
 
 impl FilebaseUploadConfig {
     fn from_state(state: &AppState) -> Result<Self, AuthError> {
-        let bucket_name = state
-            .env
-            .filebase_bucket_name
-            .clone()
-            .ok_or_else(|| AuthError::internal("missing FILEBASE_BUCKET_NAME", "missing config"))?;
+        let bucket_name =
+            state.env.filebase_bucket_name.clone().ok_or_else(|| {
+                AuthError::internal("missing FILEBASE_BUCKET_NAME", "missing config")
+            })?;
         let rpc_token = state.env.filebase_ipfs_rpc_token.clone().ok_or_else(|| {
             AuthError::internal("missing FILEBASE_IPFS_RPC_TOKEN", "missing config")
         })?;

@@ -32,9 +32,9 @@ pub struct Environment {
     pub treasury_address: String,
     pub oracle_data_bridge_address: String,
     pub payment_token_address: String,
-    pub coingecko_api_base_url: String,
-    pub coingecko_demo_api_key: Option<String>,
-    pub coingecko_payment_token_coin_id: String,
+    pub exchange_rate_api_base_url: String,
+    pub coinpaprika_api_base_url: String,
+    pub coinpaprika_payment_token_coin_id: String,
     pub aa_bundler_rpc_url: String,
     pub aa_entry_point_address: String,
     pub aa_simple_account_factory_address: String,
@@ -92,14 +92,17 @@ impl Environment {
                 "PAYMENT_TOKEN_ADDRESS",
                 "MOCK_USDC_ADDRESS",
             ])?,
-            coingecko_api_base_url: parse_env(
-                "COINGECKO_API_BASE_URL",
-                "https://api.coingecko.com/api/v3".to_owned(),
+            exchange_rate_api_base_url: parse_env(
+                "EXCHANGE_RATE_API_BASE_URL",
+                "https://open.er-api.com/v6".to_owned(),
             )?,
-            coingecko_demo_api_key: optional_env("COINGECKO_DEMO_API_KEY"),
-            coingecko_payment_token_coin_id: parse_env(
-                "COINGECKO_PAYMENT_TOKEN_COIN_ID",
-                "usd-coin".to_owned(),
+            coinpaprika_api_base_url: parse_env(
+                "COINPAPRIKA_API_BASE_URL",
+                "https://api.coinpaprika.com/v1".to_owned(),
+            )?,
+            coinpaprika_payment_token_coin_id: parse_env(
+                "COINPAPRIKA_PAYMENT_TOKEN_COIN_ID",
+                "usdc-usd-coin".to_owned(),
             )?,
             aa_bundler_rpc_url: required_env("AA_BUNDLER_RPC_URL")?,
             aa_entry_point_address: required_address_env("AA_ENTRY_POINT_ADDRESS")?,

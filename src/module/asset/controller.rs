@@ -9,17 +9,17 @@ use crate::{
         asset::schema::{
             AdminBurnAssetRequest, AdminControllerTransferRequest, AdminCreateAssetRequest,
             AdminIssueAssetRequest, AdminProcessRedemptionRequest, AdminRegisterAssetTypeRequest,
-            AdminSetAssetCatalogRequest,
-            AdminSetAssetComplianceRegistryRequest, AdminSetAssetMetadataRequest,
-            AdminSetAssetPriceRequest, AdminSetAssetPricingRequest,
+            AdminSetAssetCatalogRequest, AdminSetAssetComplianceRegistryRequest,
+            AdminSetAssetMetadataRequest, AdminSetAssetPriceRequest, AdminSetAssetPricingRequest,
             AdminSetAssetSelfServicePurchaseRequest, AdminSetAssetStateRequest,
-            AdminSetAssetTreasuryRequest, AssetFactoryStatusResponse, AssetFactoryWriteResponse,
-            AssetCatalogWriteResponse, AssetHolderStateResponse, AssetListResponse,
-            AssetPreviewRequest, AssetPreviewResponse, AssetResponse,
-            AssetTransferCheckResponse, AssetTypeListResponse, AssetTypeResponse,
-            AssetTypeWriteResponse, AssetWriteResponse, GaslessApprovePaymentTokenRequest,
-            GaslessAssetActionResponse, GaslessCancelRedemptionRequest, GaslessClaimYieldRequest,
-            GaslessPurchaseAssetRequest, GaslessRedeemAssetRequest, ListAssetsQuery,
+            AdminSetAssetTreasuryRequest, AssetCatalogWriteResponse, AssetDetailQuery,
+            AssetDetailResponse, AssetFactoryStatusResponse, AssetFactoryWriteResponse,
+            AssetHistoryQuery, AssetHistoryResponse, AssetHolderStateResponse, AssetListResponse,
+            AssetPreviewRequest, AssetPreviewResponse, AssetResponse, AssetTransferCheckResponse,
+            AssetTypeListResponse, AssetTypeResponse, AssetTypeWriteResponse, AssetWriteResponse,
+            GaslessApprovePaymentTokenRequest, GaslessAssetActionResponse,
+            GaslessCancelRedemptionRequest, GaslessClaimYieldRequest, GaslessPurchaseAssetRequest,
+            GaslessRedeemAssetRequest, ListAssetsQuery,
         },
         auth::error::AuthError,
     },
@@ -82,6 +82,66 @@ pub async fn get_asset(
     Path(asset_address): Path<String>,
 ) -> Result<Json<AssetResponse>, AuthError> {
     Ok(Json(asset::get_asset(&state, &asset_address).await?))
+}
+
+pub async fn get_asset_detail(
+    State(state): State<AppState>,
+    Path(asset_address): Path<String>,
+    Query(query): Query<AssetDetailQuery>,
+) -> Result<Json<AssetDetailResponse>, AuthError> {
+    Ok(Json(
+        asset::get_asset_detail(&state, &asset_address, query).await?,
+    ))
+}
+
+pub async fn get_asset_detail_by_proposal(
+    State(state): State<AppState>,
+    Path(proposal_id): Path<String>,
+    Query(query): Query<AssetDetailQuery>,
+) -> Result<Json<AssetDetailResponse>, AuthError> {
+    Ok(Json(
+        asset::get_asset_detail_by_proposal(&state, &proposal_id, query).await?,
+    ))
+}
+
+pub async fn get_asset_detail_by_slug(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Query(query): Query<AssetDetailQuery>,
+) -> Result<Json<AssetDetailResponse>, AuthError> {
+    Ok(Json(
+        asset::get_asset_detail_by_slug(&state, &slug, query).await?,
+    ))
+}
+
+pub async fn get_asset_history(
+    State(state): State<AppState>,
+    Path(asset_address): Path<String>,
+    Query(query): Query<AssetHistoryQuery>,
+) -> Result<Json<AssetHistoryResponse>, AuthError> {
+    Ok(Json(
+        asset::get_asset_history(&state, &asset_address, query).await?,
+    ))
+}
+
+pub async fn get_asset_history_by_proposal(
+    State(state): State<AppState>,
+    Path(proposal_id): Path<String>,
+    Query(query): Query<AssetHistoryQuery>,
+) -> Result<Json<AssetHistoryResponse>, AuthError> {
+    Ok(Json(
+        asset::get_asset_history_by_proposal(&state, &proposal_id, query).await?,
+    ))
+}
+
+pub async fn get_asset_history_by_slug(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Query(query): Query<AssetHistoryQuery>,
+) -> Result<Json<AssetHistoryResponse>, AuthError> {
+    Ok(Json(
+        asset::get_asset_history_by_slug(&state, &slug, query).await?,
+    ))
 }
 
 pub async fn get_asset_holder_state(

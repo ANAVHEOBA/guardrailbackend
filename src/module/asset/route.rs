@@ -9,7 +9,9 @@ use crate::{
     module::asset::controller::{
         approve_payment_token, burn_asset, cancel_redemption, check_transfer, claim_yield,
         controller_transfer, create_asset, disable_controller, get_asset, get_asset_by_proposal,
-        get_asset_by_slug, get_asset_holder_state, get_asset_type, get_factory_status,
+        get_asset_by_slug, get_asset_detail, get_asset_detail_by_proposal,
+        get_asset_detail_by_slug, get_asset_history, get_asset_history_by_proposal,
+        get_asset_history_by_slug, get_asset_holder_state, get_asset_type, get_factory_status,
         issue_asset, list_asset_types, list_assets, list_assets_by_type, pause_factory,
         preview_purchase, preview_redemption, process_redemption, purchase_asset, redeem_asset,
         register_asset_type, set_asset_catalog, set_asset_state, set_compliance_registry,
@@ -26,10 +28,25 @@ pub fn public_router() -> Router<AppState> {
         .route("/assets", get(list_assets))
         .route("/assets/by-type/{asset_type_id}", get(list_assets_by_type))
         .route(
+            "/assets/proposals/{proposal_id}/history",
+            get(get_asset_history_by_proposal),
+        )
+        .route(
+            "/assets/proposals/{proposal_id}/detail",
+            get(get_asset_detail_by_proposal),
+        )
+        .route(
             "/assets/proposals/{proposal_id}",
             get(get_asset_by_proposal),
         )
+        .route(
+            "/assets/slug/{slug}/history",
+            get(get_asset_history_by_slug),
+        )
+        .route("/assets/slug/{slug}/detail", get(get_asset_detail_by_slug))
         .route("/assets/slug/{slug}", get(get_asset_by_slug))
+        .route("/assets/{asset_address}/history", get(get_asset_history))
+        .route("/assets/{asset_address}/detail", get(get_asset_detail))
         .route("/assets/{asset_address}", get(get_asset))
         .route(
             "/assets/{asset_address}/holders/{wallet_address}",

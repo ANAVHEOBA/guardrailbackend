@@ -3,11 +3,12 @@ use uuid::Uuid;
 use crate::{
     config::db::DbPool,
     module::{
-        asset::model::{AssetCatalogRecord, AssetRecord, AssetTypeRecord},
+        asset::model::{AssetCatalogRecord, AssetPriceHistoryRecord, AssetRecord, AssetTypeRecord},
         auth::error::AuthError,
     },
 };
 
+use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder};
 
 mod sql {
@@ -19,6 +20,8 @@ mod sql {
     pub const GET_ASSET_BY_SLUG: &str = include_str!("sql/get_asset_by_slug.sql");
     pub const UPSERT_ASSET: &str = include_str!("sql/upsert_asset.sql");
     pub const UPSERT_ASSET_CATALOG_ENTRY: &str = include_str!("sql/upsert_asset_catalog_entry.sql");
+    pub const INSERT_ASSET_PRICE_HISTORY: &str = include_str!("sql/insert_asset_price_history.sql");
+    pub const LIST_ASSET_PRICE_HISTORY: &str = include_str!("sql/list_asset_price_history.sql");
 }
 
 pub struct AssetListFilters<'a> {
@@ -140,6 +143,9 @@ pub async fn list_assets(
             c.slug,
             c.image_url,
             c.summary,
+            c.market_segment,
+            COALESCE(c.suggested_internal_tags, ARRAY[]::TEXT[]) AS suggested_internal_tags,
+            COALESCE(c.sources, ARRAY[]::TEXT[]) AS sources,
             COALESCE(c.featured, FALSE) AS featured,
             COALESCE(c.visible, TRUE) AS visible,
             COALESCE(c.searchable, TRUE) AS searchable,
@@ -184,15 +190,19 @@ pub async fn list_assets(
     }
     if let Some(q) = filters.q {
         let pattern = format!("%{}%", q.trim());
-        query.push(
-            " AND (a.name ILIKE ",
-        );
+        query.push(" AND (a.name ILIKE ");
         query.push_bind(pattern.clone());
         query.push(" OR a.symbol ILIKE ");
         query.push_bind(pattern.clone());
         query.push(" OR COALESCE(c.slug, '') ILIKE ");
         query.push_bind(pattern.clone());
         query.push(" OR COALESCE(c.summary, '') ILIKE ");
+        query.push_bind(pattern.clone());
+        query.push(" OR COALESCE(c.market_segment, '') ILIKE ");
+        query.push_bind(pattern.clone());
+        query.push(
+            " OR array_to_string(COALESCE(c.suggested_internal_tags, ARRAY[]::TEXT[]), ' ') ILIKE ",
+        );
         query.push_bind(pattern);
         query.push(")");
     }
@@ -296,6 +306,9 @@ pub async fn upsert_asset_catalog_entry(
     slug: &str,
     image_url: Option<&str>,
     summary: Option<&str>,
+    market_segment: Option<&str>,
+    suggested_internal_tags: &[String],
+    sources: &[String],
     featured: bool,
     visible: bool,
     searchable: bool,
@@ -307,12 +320,53 @@ pub async fn upsert_asset_catalog_entry(
         .bind(slug)
         .bind(image_url)
         .bind(summary)
+        .bind(market_segment)
+        .bind(suggested_internal_tags)
+        .bind(sources)
         .bind(featured)
         .bind(visible)
         .bind(searchable)
         .bind(created_by_user_id)
         .bind(updated_by_user_id)
         .fetch_one(pool)
+        .await
+        .map_err(AuthError::from)
+}
+
+pub async fn insert_asset_price_history(
+    pool: &DbPool,
+    asset_address: &str,
+    price_per_token: &str,
+    redemption_price_per_token: &str,
+    source: &str,
+    tx_hash: Option<&str>,
+    created_by_user_id: Option<Uuid>,
+    observed_at: Option<DateTime<Utc>>,
+) -> Result<(), AuthError> {
+    sqlx::query(sql::INSERT_ASSET_PRICE_HISTORY)
+        .bind(asset_address)
+        .bind(price_per_token)
+        .bind(redemption_price_per_token)
+        .bind(source)
+        .bind(tx_hash)
+        .bind(created_by_user_id)
+        .bind(observed_at)
+        .execute(pool)
+        .await
+        .map_err(AuthError::from)?;
+
+    Ok(())
+}
+
+pub async fn list_asset_price_history(
+    pool: &DbPool,
+    asset_address: &str,
+    observed_from: Option<DateTime<Utc>>,
+) -> Result<Vec<AssetPriceHistoryRecord>, AuthError> {
+    sqlx::query_as::<_, AssetPriceHistoryRecord>(sql::LIST_ASSET_PRICE_HISTORY)
+        .bind(asset_address)
+        .bind(observed_from)
+        .fetch_all(pool)
         .await
         .map_err(AuthError::from)
 }
